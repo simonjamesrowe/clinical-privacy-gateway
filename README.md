@@ -4,8 +4,43 @@ A local-first macOS tool for capturing clinical notes, detecting identifying
 information, reviewing privacy transformations, and searching an encrypted
 personal note library.
 
-This repository is currently documentation-only. It describes a personal,
-single-user tool, not a clinical product or an autonomous anonymisation system.
+This repository contains the initial macOS shell and the architecture for a
+personal, single-user tool. It is not a clinical product or an autonomous
+anonymisation system.
+
+## Current app shell
+
+The first runnable build is **Clinician’s Veil**: a local-only welcome screen
+with native macOS menus and build information. It deliberately has no clinical
+material entry, microphone, persistence, model, or network capability yet.
+
+### Run locally
+
+Install a current Node.js LTS release and Rust, including the Apple Silicon
+target when building on another platform. Then run:
+
+```sh
+npm ci
+npm run tauri dev
+```
+
+The web interface can also be previewed without a native bridge with
+`npm run dev`. It labels itself as a local development build in that mode.
+
+### Pull requests and releases
+
+Pull requests run formatting, linting, unit tests, and an arm64 production DMG
+build on GitHub-hosted macOS. The `Quality gate` check is required before merge
+to `main`.
+
+To publish a release, update the package version and push a matching `vX.Y.Z`
+tag. The release workflow uploads the unsigned arm64 DMG both as a workflow
+artifact and to the generated GitHub Release.
+
+The DMG is intentionally unsigned and not notarised. On first use macOS may
+block it; inspect the downloaded release, then use Finder’s **Open** action or
+System Settings’ explicit **Open Anyway** control to launch it. Do not bypass
+Gatekeeper for an artifact whose source or checksum you cannot verify.
 
 ## First release
 

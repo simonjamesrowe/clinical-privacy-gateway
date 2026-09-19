@@ -81,7 +81,7 @@ These are stable domain shapes, not committed Rust or IPC schemas:
 
 | Area | Decision | Status |
 | --- | --- | --- |
-| Desktop shell | Tauri 2.11 line with WKWebView | Decided |
+| Desktop shell | Tauri 2.11 line with WKWebView; initial Clinician’s Veil welcome shell | Decided |
 | Core | Plain Rust library behind adapters | Decided |
 | Persistence | `rusqlite`, bundled SQLCipher, FTS5 | Decided; combined build spike required |
 | Speech | SpeechAnalyzer first; benchmark against WhisperKit | Benchmark gate |
@@ -91,7 +91,8 @@ These are stable domain shapes, not committed Rust or IPC schemas:
 | Semantic search | `sqlite-vec` integration seam only | Deferred |
 | Audio retention | Encrypted source audio and aligned transcript for 30 days | Decided |
 | External AI | Designed now, unavailable pending use case and governance approval | Gated |
-| Frontend framework | Any small web framework that respects the command boundary | Deliberately deferred |
+| Frontend framework | Vite/TypeScript for the initial shell; command boundary remains enforced | Decided |
+| Distribution | GitHub Actions validates PRs; matching version tags release an unsigned arm64 DMG | Decided |
 
 ## Focused architecture
 
