@@ -92,7 +92,7 @@ These are stable domain shapes, not committed Rust or IPC schemas:
 | Audio retention | Encrypted source audio and aligned transcript for 30 days | Decided |
 | External AI | Designed now, unavailable pending use case and governance approval | Gated |
 | Frontend framework | Vite/TypeScript for the initial shell; command boundary remains enforced | Decided |
-| Distribution | GitHub Actions validates PRs; matching version tags release an unsigned arm64 DMG | Decided |
+| Distribution | GitHub Actions validates PRs; `main` updates a rolling unsigned arm64 DMG prerelease, while version tags create permanent releases | Decided |
 
 ## Focused architecture
 
