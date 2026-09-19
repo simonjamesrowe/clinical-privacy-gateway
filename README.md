@@ -33,9 +33,11 @@ Pull requests run formatting, linting, unit tests, and an arm64 production DMG
 build on GitHub-hosted macOS. The `Quality gate` check is required before merge
 to `main`.
 
-To publish a release, update the package version and push a matching `vX.Y.Z`
-tag. The release workflow uploads the unsigned arm64 DMG both as a workflow
-artifact and to the generated GitHub Release.
+Every successful push to `main` updates the **Latest main build** prerelease and
+replaces its unsigned arm64 DMG. This is the stable download point for trying the
+newest merged build. Versioned releases remain available: update the package
+version and push a matching `vX.Y.Z` tag to create a permanent GitHub Release.
+Both flows upload the DMG as a workflow artifact and a GitHub Release asset.
 
 The DMG is intentionally unsigned and not notarised. On first use macOS may
 block it; inspect the downloaded release, then use Finder’s **Open** action or

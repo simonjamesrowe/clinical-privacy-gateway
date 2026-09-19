@@ -2,6 +2,7 @@ name: Release macOS app
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
 
 permissions:
@@ -23,20 +24,46 @@ jobs:
         with:
           targets: aarch64-apple-darwin
       - run: npm ci
-      - run: node scripts/check-release-version.mjs
+      - name: Verify version tag
+        if: github.ref_type == 'tag'
+        run: node scripts/check-release-version.mjs
       - run: npm run format:check
       - run: npm run lint
       - run: npm test
       - run: cargo fmt --check
       - run: cargo test --workspace
       - run: npm run tauri build -- --target aarch64-apple-darwin
+      - name: Resolve release metadata
+        id: release
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          if [ "$REF_TYPE" = "tag" ]; then
+            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "name=$REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "generate_notes=true" >> "$GITHUB_OUTPUT"
+          else
+            git tag --force main-latest "$COMMIT_SHA"
+            git push origin "refs/tags/main-latest" --force
+            echo "tag=main-latest" >> "$GITHUB_OUTPUT"
+            echo "name=Latest main build" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "generate_notes=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: clinicians-veil-${{ github.ref_name }}-arm64-dmg
+          name: clinicians-veil-${{ steps.release.outputs.tag }}-arm64-dmg
           path: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
           retention-days: 30
       - uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: ${{ steps.release.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ steps.release.outputs.prerelease }}
+          generate_release_notes: ${{ steps.release.outputs.generate_notes }}
           files: target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
