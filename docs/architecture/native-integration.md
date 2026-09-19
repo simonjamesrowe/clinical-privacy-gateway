@@ -54,5 +54,9 @@ part of the application architecture.
   for ordinary check-on-save work to reduce cache invalidation and memory use.
 - Evaluate a faster linker in `.cargo/config.toml` when the codebase is
   scaffolded; keep platform-specific configuration documented.
-- Build locally with ad-hoc signing for this single-machine tool. Do not add
-  notarisation or GitHub Actions until distribution becomes a requirement.
+- Build locally with ad-hoc signing for this single-machine tool. GitHub Actions
+  validates pull requests and publishes an unsigned arm64 DMG when a matching
+  `vX.Y.Z` tag is pushed. The GitHub Release and workflow artifact are the
+  distribution point for the target M2 Mac. The user must explicitly complete
+  macOS’s Gatekeeper flow on first launch; Developer ID signing and notarisation
+  remain deferred until broader distribution is required.

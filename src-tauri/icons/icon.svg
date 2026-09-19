@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title>Clinician’s Veil</title>
+  <rect width="512" height="512" rx="112" fill="#dfe7e2"/>
+  <path d="M91 218c-6-102 68-158 165-158 113 0 179 80 165 180-12 85-89 146-174 132-90-15-151-74-156-154Z" fill="none" stroke="#006f70" stroke-width="28"/>
+  <path d="M147 110c72-55 173-20 211 60 42 88-10 190-102 211-84 19-171-32-189-114-16-70 15-122 80-157Z" fill="none" stroke="#c86c42" stroke-width="28"/>
+  <circle cx="256" cy="256" r="51" fill="#dfe7e2" stroke="#122426" stroke-width="18"/>
+</svg>
