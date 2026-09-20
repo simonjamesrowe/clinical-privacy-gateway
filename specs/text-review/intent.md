@@ -27,6 +27,17 @@ intents; it does not claim those first-release intents are all complete.
   Aliases, nicknames and relationships are not automatically reconciled.
 - Accept, edit the bracketed placeholder, keep, or remove. Select any missed
   source phrase to add a manual proposal. Unapplied label edits block copying.
+- Placeholder typing uses uppercase. Leaving the field supplies brackets and
+  converts word separators to underscores (for example `case manager` becomes
+  `[CASE_MANAGER]`). Empty labels restore the existing proposal; labels beginning
+  with a number receive `LABEL_`. Overlong labels have an inline error rather
+  than being silently truncated. Applying a label remains an explicit decision.
+- A sticky stage tracker shows Verify model → Analyse → Review → Final check,
+  with measured download/window progress or an indeterminate loading indicator.
+  Cancellation and failures never mark a stage complete. Review cards are pastel
+  yellow while pending or carrying an unapplied edit, and pastel green once a
+  decision is made, with text status labels alongside colour. Green describes
+  a decision, not a privacy guarantee; deliberately kept details remain explicit.
 - A final local rules + NER check of the proposed result, masking only generated
   placeholders. Kept items remain visible as deliberate retained details. New
   findings return to pending; changing a decision invalidates the final check.

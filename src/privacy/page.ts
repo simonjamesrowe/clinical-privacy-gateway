@@ -5,6 +5,10 @@ import type {
   ReviewSession,
 } from "./types";
 import "../styles/review.css";
+import { normalisePlaceholder, placeholderError } from "./placeholder";
+import type { Progress } from "./types";
+
+type Work = "download" | "analysis" | "rescan" | "review" | "copy";
 
 const EXAMPLE =
   "Alex Morgan attended a review in Bristol on 12 March 2026. Alex Morgan reported improved sleep and no change to the prescribed 10 mg dose. Contact: alex.morgan@example.invalid. Case reference: SYN-2048.";
@@ -35,6 +39,10 @@ export class TextReviewPage {
   private selection: { start: number; end: number } | null = null;
   private message = "";
   private error = "";
+  private initialising = false;
+  private work: Work | null = null;
+  private workProgress: Progress | null = null;
+  private cancelling = false;
   constructor(
     private root: HTMLElement,
     private bridge: PrivacyBridge,
@@ -42,15 +50,20 @@ export class TextReviewPage {
   ) {}
 
   async mount(): Promise<void> {
+    this.initialising = this.bridge.available;
     this.render();
     if (!this.bridge.available) return;
     try {
       const unsubscribe = await this.bridge.progress((event) => {
         if (this.disposed || event.operation !== this.operation || !this.busy)
           return;
-        this.message = event.total
-          ? `${event.stage} · ${Math.floor((100 * event.completed) / event.total)}%`
-          : event.stage;
+        if (this.cancelling) return;
+        this.workProgress = event;
+        const percentage = this.progressPercent();
+        this.message =
+          percentage === null
+            ? event.stage
+            : `${event.stage} · ${Math.floor(percentage)}%`;
         this.updateStatus();
       });
       if (this.disposed) {
@@ -62,6 +75,7 @@ export class TextReviewPage {
     } catch {
       this.error = "Model status is unavailable. Reopen this page to retry.";
     }
+    this.initialising = false;
     if (!this.disposed) this.render();
   }
 
@@ -73,6 +87,8 @@ export class TextReviewPage {
     this.session = null;
     this.selection = null;
     this.drafts.clear();
+    this.workProgress = null;
+    this.work = null;
     this.root.replaceChildren();
   }
   private el<T extends Element>(selector: string): T {
@@ -85,6 +101,96 @@ export class TextReviewPage {
     if (this.disposed) return;
     this.el<HTMLElement>("[data-status]").textContent = this.message;
     this.el<HTMLElement>("[data-error]").textContent = this.error;
+    this.updateWorkflow();
+  }
+  private progressPercent(): number | null {
+    const progress = this.workProgress;
+    return progress &&
+      Number.isFinite(progress.total) &&
+      progress.total > 0 &&
+      Number.isFinite(progress.completed)
+      ? Math.max(0, Math.min(100, (100 * progress.completed) / progress.total))
+      : null;
+  }
+  private updateWorkflow(): void {
+    const pending = (this.session?.pending ?? 0) > 0 || this.drafts.size > 0;
+    const checked = this.session?.checked === true && !pending;
+    const current =
+      this.initialising || this.work === "download" || !this.model?.installed
+        ? 0
+        : !this.session
+          ? 1
+          : pending
+            ? 2
+            : 3;
+    const complete = checked && !this.initialising && this.work !== "download";
+    this.root
+      .querySelectorAll<HTMLElement>("[data-step]")
+      .forEach((step, index) => {
+        const state =
+          index < current || complete
+            ? "complete"
+            : index === current
+              ? "current"
+              : "upcoming";
+        step.dataset.state = state;
+        if (state === "current") step.setAttribute("aria-current", "step");
+        else step.removeAttribute("aria-current");
+        step.querySelector("[data-step-number]")!.textContent =
+          state === "complete" ? "✓" : String(index + 1);
+        step.querySelector("[data-step-status]")!.textContent =
+          state === "complete"
+            ? "Complete"
+            : state === "current"
+              ? "Current step"
+              : "Upcoming";
+      });
+    const running =
+      this.initialising ||
+      (this.busy &&
+        ["download", "analysis", "rescan"].includes(this.work ?? ""));
+    const progress = this.el<HTMLProgressElement>("[data-progress]");
+    progress.hidden = !running;
+    const percentage = this.cancelling ? null : this.progressPercent();
+    if (percentage === null) progress.removeAttribute("value");
+    else progress.value = percentage;
+    progress.setAttribute(
+      "aria-label",
+      this.work === "download"
+        ? "Model download progress"
+        : this.work === "rescan"
+          ? "Final check progress"
+          : "Analysis progress",
+    );
+    this.el<HTMLButtonElement>("[data-cancel]").hidden =
+      !running || this.initialising;
+    this.el<HTMLButtonElement>("[data-cancel]").disabled = this.cancelling;
+    const guidance = !this.bridge.available
+      ? "Open the macOS app to start local processing."
+      : this.initialising
+        ? "Verifying the local model…"
+        : current === 0
+          ? "Download and verify the model once to get started."
+          : current === 1
+            ? "Enter source text, then choose Find identifiers."
+            : current === 2
+              ? "Review the yellow cards. Green cards have a decision."
+              : checked
+                ? "Final check complete. Reviewed text is ready to copy."
+                : "Decisions complete. Run the final check before copying.";
+    this.el<HTMLElement>("[data-status]").textContent =
+      this.message || guidance;
+    this.el<HTMLElement>("[data-work-detail]").textContent = running
+      ? this.cancelling
+        ? "Waiting for the current local operation to stop."
+        : this.workProgress &&
+            this.work !== "download" &&
+            this.workProgress.total > 0
+          ? `Section ${Math.min(this.workProgress.completed, this.workProgress.total)} of ${this.workProgress.total} · Processing on this Mac`
+          : this.work === "download"
+            ? "Downloading model files only; source text stays on this Mac."
+            : "Processing on this Mac. Loading can take a moment."
+      : "";
   }
   private render(): void {
     // A model-status reply must not replace an open confirmation dialog.
@@ -93,10 +199,10 @@ export class TextReviewPage {
       <section class="review-page" aria-labelledby="review-title">
         <nav class="review-nav" aria-label="Application"><button type="button" data-home>← Home</button><span>Clinician’s Veil</span><span class="local-indicator">On this Mac</span></nav>
         <header class="review-heading"><div><p class="eyebrow">Text workspace</p><h1 id="review-title">De-identify text</h1><p>Find possible identifiers. Review each change. Keep the wording that matters.</p></div><button type="button" data-discard>Discard session</button></header>
+        <section class="workflow-panel" aria-label="Text review stages"><ol class="workflow-steps">${["Verify model", "Analyse", "Review", "Final check"].map((name, index) => `<li data-step><span class="step-number" data-step-number aria-hidden="true">${index + 1}</span><span>${name}<span class="visually-hidden" data-step-status></span></span></li>`).join("")}</ol><div class="workflow-activity"><div><p class="review-status" role="status" data-status></p><p class="work-detail" data-work-detail></p></div><button type="button" data-cancel hidden>Cancel processing</button></div><progress data-progress max="100" hidden></progress><p class="review-error" role="alert" data-error></p></section>
         <aside class="model-panel" aria-label="Local detection model"><div><strong data-model-title></strong><p data-model-description></p></div><button type="button" data-install>Download model</button></aside>
-        <p class="review-status" role="status" data-status></p><p class="review-error" role="alert" data-error></p>
-        <div class="review-toolbar"><p>Source text and replacements stay in this session. Nothing is saved.</p><button type="button" data-cancel hidden>Cancel processing</button></div>
-        <div data-workspace></div>
+        <div class="review-toolbar"><p>Source text and replacements stay in this session. Nothing is saved.</p></div>
+        <div data-workspace aria-busy="${this.busy}"></div>
         <aside class="scope-note"><strong>What this check covers</strong><p>Identifier patterns and possible names, places and organisations. Initials, nicknames, misspellings and parts of organisation names can be missed; model proposals can include clinical terms. File paths and indirect identifying combinations are not checked in this version. Review the whole text, including unmarked phrases.</p></aside>
       </section>`;
     this.bind("[data-home]", () => {
@@ -126,7 +232,6 @@ export class TextReviewPage {
       : "Download model";
     this.el<HTMLButtonElement>("[data-install]").disabled =
       this.busy || !this.bridge.available || !this.model;
-    this.el<HTMLButtonElement>("[data-cancel]").hidden = !this.busy;
     this.el<HTMLButtonElement>("[data-home]").disabled = this.busy;
     this.el<HTMLButtonElement>("[data-discard]").disabled = this.busy;
     if (this.session) this.renderReview(this.session);
@@ -288,7 +393,7 @@ export class TextReviewPage {
     const card = document.createElement("article");
     card.className = "detection-card";
     card.dataset.card = String(item.group);
-    card.innerHTML = `<div class="detection-copy"><div class="detection-heading"><strong data-category></strong><span data-decision></span></div><p class="phrase" data-phrase></p><p class="detection-reason" data-reason></p><div data-occurrences></div></div><div class="detection-controls"><label>Placeholder <input data-label spellcheck="false" autocomplete="off" maxlength="48" /></label><div class="decision-buttons"><button type="button" data-action="accept">Accept</button><button type="button" data-action="edit">Edit</button><button type="button" data-action="keep">Keep</button><button type="button" data-action="remove">Remove</button></div></div>`;
+    card.innerHTML = `<div class="detection-copy"><div class="detection-heading"><strong data-category></strong><span class="decision-state" data-decision></span></div><p class="phrase" data-phrase></p><p class="detection-reason" data-reason></p><div data-occurrences></div></div><div class="detection-controls"><label>Placeholder <input data-label spellcheck="false" autocomplete="off" autocapitalize="characters" aria-describedby="label-hint-${item.group} label-error-${item.group}" /></label><p class="label-hint" id="label-hint-${item.group}" data-label-hint></p><p class="label-error" id="label-error-${item.group}" data-label-error role="alert"></p><div class="decision-buttons"><button type="button" data-action="accept">Accept</button><button type="button" data-action="edit">Apply label</button><button type="button" data-action="keep">Keep</button><button type="button" data-action="remove">Remove</button></div></div>`;
     card.querySelector<HTMLElement>("[data-category]")!.textContent =
       item.category.toLowerCase().replaceAll("_", " ");
     card.querySelector<HTMLElement>("[data-decision]")!.textContent =
@@ -300,20 +405,71 @@ export class TextReviewPage {
     const label = card.querySelector<HTMLInputElement>("[data-label]")!;
     label.value = this.drafts.get(item.group) ?? item.replacement;
     label.disabled = this.busy;
-    label.addEventListener("input", () => {
+    const updateLabel = () => {
       if (label.value === item.replacement) this.drafts.delete(item.group);
       else this.drafts.set(item.group, label.value);
-      this.message = this.drafts.size
-        ? "Apply placeholder changes with Edit before checking or copying."
-        : "";
+      const error = placeholderError(
+        normalisePlaceholder(label.value, item.replacement),
+      );
+      label.setAttribute("aria-invalid", String(Boolean(error)));
+      card.querySelector("[data-label-error]")!.textContent = error;
+      card.querySelector("[data-label-hint]")!.textContent = this.drafts.has(
+        item.group,
+      )
+        ? "Apply label to use this change."
+        : "Auto-formatted: [UPPER_CASE_LABEL].";
+      card.dataset.state =
+        item.decision === "pending" || this.drafts.has(item.group)
+          ? "pending"
+          : "resolved";
+      card.querySelector("[data-decision]")!.textContent =
+        `${this.drafts.has(item.group) ? "Unapplied label" : item.decision === "pending" ? "To review" : `✓ ${DECISION_LABEL[item.decision]}`} · ${items.length} occurrence(s)`;
+    };
+    const updateDraft = () => {
+      if (!this.busy) this.message = "";
+      updateLabel();
       this.updateCompletion();
       this.updateStatus();
+    };
+    const formatLabel = () => {
+      label.value = normalisePlaceholder(label.value, item.replacement);
+      updateDraft();
+    };
+    label.addEventListener("input", (event) => {
+      if (event instanceof InputEvent && event.isComposing) return;
+      const start = label.value
+        .slice(0, label.selectionStart ?? 0)
+        .toUpperCase().length;
+      const end = label.value
+        .slice(0, label.selectionEnd ?? 0)
+        .toUpperCase().length;
+      const direction = label.selectionDirection ?? undefined;
+      label.value = label.value.toUpperCase();
+      label.setSelectionRange(start, end, direction);
+      updateDraft();
     });
+    label.addEventListener("blur", formatLabel);
+    label.addEventListener("compositionend", formatLabel);
+    updateLabel();
     for (const button of card.querySelectorAll<HTMLButtonElement>(
       "[data-action]",
     )) {
       button.disabled = this.busy;
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.action === item.decision),
+      );
       button.addEventListener("click", () => {
+        if (
+          button.dataset.action === "accept" ||
+          button.dataset.action === "edit"
+        ) {
+          formatLabel();
+          if (placeholderError(label.value)) {
+            label.focus();
+            return;
+          }
+        }
         void this.change(
           "review_decision",
           {
@@ -355,11 +511,15 @@ export class TextReviewPage {
   private async perform<T>(
     label: string,
     action: () => Promise<T>,
+    work: Work = "review",
   ): Promise<T | undefined> {
     if (this.busy || this.disposed) return;
     this.busy = true;
     this.error = "";
     this.message = label;
+    this.work = work;
+    this.workProgress = null;
+    this.cancelling = false;
     this.operation += 1;
     this.render();
     try {
@@ -375,24 +535,34 @@ export class TextReviewPage {
     } finally {
       this.busy = false;
       this.message = "";
+      this.work = null;
+      this.workProgress = null;
+      this.cancelling = false;
     }
   }
   private args(): Record<string, unknown> {
     return { sessionId: this.session!.id, revision: this.session!.revision };
   }
   private async install(): Promise<void> {
-    await this.perform("Preparing download…", async () => {
-      await this.bridge.call("install_model", { operation: this.operation });
-      this.model = await this.bridge.call<ModelStatus>("model_status");
-    });
+    await this.perform(
+      "Preparing download…",
+      async () => {
+        await this.bridge.call("install_model", { operation: this.operation });
+        this.model = await this.bridge.call<ModelStatus>("model_status");
+      },
+      "download",
+    );
     this.render();
   }
   private async detect(): Promise<void> {
-    const result = await this.perform("Finding identifiers…", () =>
-      this.bridge.call<ReviewSession>("detect_text", {
-        operation: this.operation,
-        source: this.source,
-      }),
+    const result = await this.perform(
+      "Finding identifiers…",
+      () =>
+        this.bridge.call<ReviewSession>("detect_text", {
+          operation: this.operation,
+          source: this.source,
+        }),
+      "analysis",
     );
     if (result) this.session = result;
     this.render();
@@ -423,30 +593,39 @@ export class TextReviewPage {
         ?.focus({ preventScroll: true });
   }
   private async rescan(): Promise<void> {
-    const result = await this.perform("Checking reviewed text…", () =>
-      this.bridge.call<ReviewSession>("rescan_text", {
-        ...this.args(),
-        operation: this.operation,
-      }),
+    const result = await this.perform(
+      "Checking reviewed text…",
+      () =>
+        this.bridge.call<ReviewSession>("rescan_text", {
+          ...this.args(),
+          operation: this.operation,
+        }),
+      "rescan",
     );
     if (result) this.session = result;
     this.render();
   }
   private async copy(): Promise<void> {
     let copied = false;
-    await this.perform("Copying…", async () => {
-      await this.bridge.call("copy_reviewed_text", this.args());
-      copied = true;
-    });
+    await this.perform(
+      "Copying…",
+      async () => {
+        await this.bridge.call("copy_reviewed_text", this.args());
+        copied = true;
+      },
+      "copy",
+    );
     if (copied) this.message = "Reviewed text copied.";
     this.render();
   }
   private async cancel(): Promise<void> {
+    this.cancelling = true;
     this.message = "Cancelling…";
     this.updateStatus();
     try {
       await this.bridge.call("cancel_operation", { operation: this.operation });
     } catch {
+      this.cancelling = false;
       this.error =
         "Cancellation could not be requested. Wait for processing to finish.";
       this.updateStatus();

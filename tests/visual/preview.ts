@@ -3,6 +3,7 @@ import { TextReviewPage } from "../../src/privacy/page";
 import type {
   Decision,
   PrivacyBridge,
+  Progress,
   ReviewSession,
 } from "../../src/privacy/types";
 import "../../src/styles/app.css";
@@ -59,10 +60,60 @@ function renderFixture() {
   session.retained = session.items.filter((i) => i.decision === "keep").length;
   return structuredClone(session);
 }
+let report: ((event: Progress) => void) | undefined;
+let cancelPreview: (() => void) | undefined;
+const nextProgress =
+  document.querySelector<HTMLButtonElement>("#next-progress")!;
 const bridge: PrivacyBridge = {
   available: true,
-  progress: async () => () => {},
+  progress: async (callback) => {
+    report = callback;
+    return () => {
+      report = undefined;
+    };
+  },
   async call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+    if (command === "cancel_operation") {
+      cancelPreview?.();
+      return undefined as T;
+    }
+    if (
+      ["detect_text", "rescan_text"].includes(command) &&
+      document.querySelector<HTMLInputElement>("#slow-analysis")!.checked
+    ) {
+      await new Promise<void>((resolve, reject) => {
+        let completed = 0;
+        const cleanup = () => {
+          nextProgress.hidden = true;
+          nextProgress.onclick = null;
+          cancelPreview = undefined;
+        };
+        cancelPreview = () => {
+          cleanup();
+          reject("Operation cancelled.");
+        };
+        nextProgress.hidden = false;
+        report?.({
+          operation: Number(args?.operation),
+          stage: "Loading local model",
+          completed: 0,
+          total: 0,
+        });
+        nextProgress.onclick = () => {
+          completed++;
+          report?.({
+            operation: Number(args?.operation),
+            stage: "Finding named entities",
+            completed,
+            total: 4,
+          });
+          if (completed === 4) {
+            cleanup();
+            resolve();
+          }
+        };
+      });
+    }
     if (command === "model_status")
       return {
         installed: true,

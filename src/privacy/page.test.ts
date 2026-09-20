@@ -119,7 +119,232 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function editLabel(value: string) {
+  const field = root.querySelector<HTMLInputElement>("[data-label]")!;
+  field.value = value;
+  field.dispatchEvent(new Event("input"));
+  return field;
+}
+const stepStates = () =>
+  [...root.querySelectorAll<HTMLElement>("[data-step]")].map(
+    (step) => step.dataset.state,
+  );
+const progressBar = () =>
+  root.querySelector<HTMLProgressElement>("[data-progress]")!;
+
 describe("text review", () => {
+  it("keeps verification incomplete when a model download fails and bounds its progress", async () => {
+    call.mockResolvedValueOnce({
+      installed: false,
+      name: "BERT",
+      bytes: 110,
+      revision: "fixture",
+    });
+    await mount();
+    let reject!: (error: string) => void;
+    call.mockImplementationOnce(
+      () =>
+        new Promise((_, no) => {
+          reject = no;
+        }),
+    );
+    button("[data-install]").click();
+    expect(progressBar().getAttribute("aria-label")).toBe(
+      "Model download progress",
+    );
+    progress({
+      operation: 1,
+      stage: "Downloading model",
+      completed: 55,
+      total: 110,
+    });
+    expect(progressBar().value).toBe(50);
+    progress({
+      operation: 1,
+      stage: "Downloading model",
+      completed: 120,
+      total: 110,
+    });
+    expect(progressBar().value).toBe(100);
+    expect(stepStates()[0]).toBe("current");
+    reject("Model download failed.");
+    await flush();
+    expect(progressBar().hidden).toBe(true);
+    expect(stepStates()).toEqual([
+      "current",
+      "upcoming",
+      "upcoming",
+      "upcoming",
+    ]);
+    expect(button("[data-install]").disabled).toBe(false);
+    expect(
+      root.querySelector(".workflow-panel [data-error]")!.textContent,
+    ).toBe("Model download failed.");
+  });
+  it("uppercases typing and formats on blur without approving the draft", async () => {
+    await mount();
+    await detect();
+    const field = editLabel("case manager");
+    expect(field.value).toBe("CASE MANAGER");
+    field.dispatchEvent(new Event("blur"));
+    expect(field.value).toBe("[CASE_MANAGER]");
+    expect(call).toHaveBeenLastCalledWith("detect_text", expect.anything());
+    expect(button("[data-copy]").disabled).toBe(true);
+    expect(root.querySelector("[data-card]")!.getAttribute("data-state")).toBe(
+      "pending",
+    );
+    await click('[data-action="edit"]');
+    expect(call).toHaveBeenLastCalledWith(
+      "review_decision",
+      expect.objectContaining({
+        decision: "edit",
+        replacement: "[CASE_MANAGER]",
+      }),
+    );
+    expect(root.querySelector("[data-card]")!.getAttribute("data-state")).toBe(
+      "resolved",
+    );
+  });
+  it("normalises on Accept too, and keeps overlong errors beside the field", async () => {
+    await mount();
+    await detect();
+    editLabel("a".repeat(47));
+    await click('[data-action="edit"]');
+    expect(root.querySelector("[data-label-error]")!.textContent).toContain(
+      "46 characters",
+    );
+    expect(
+      root.querySelector("[data-label]")!.getAttribute("aria-invalid"),
+    ).toBe("true");
+    expect(call).toHaveBeenLastCalledWith("detect_text", expect.anything());
+    editLabel("client name");
+    await click('[data-action="accept"]');
+    expect(call).toHaveBeenLastCalledWith(
+      "review_decision",
+      expect.objectContaining({
+        decision: "edit",
+        replacement: "[CLIENT_NAME]",
+      }),
+    );
+  });
+  it("restores a cleared placeholder and marks changed resolved cards as needing attention", async () => {
+    await mount();
+    await detect();
+    await click('[data-action="accept"]');
+    await click("[data-rescan]");
+    expect(stepStates()).toEqual([
+      "complete",
+      "complete",
+      "complete",
+      "complete",
+    ]);
+    const field = editLabel("client");
+    expect(root.querySelector("[data-card]")!.getAttribute("data-state")).toBe(
+      "pending",
+    );
+    expect(
+      root.querySelector("[data-card] [data-decision]")!.textContent,
+    ).toContain("Unapplied label");
+    expect(stepStates()).toEqual([
+      "complete",
+      "complete",
+      "current",
+      "upcoming",
+    ]);
+    expect(button("[data-copy]").disabled).toBe(true);
+    field.value = "";
+    field.dispatchEvent(new Event("blur"));
+    expect(field.value).toBe("[PERSON_1]");
+    expect(root.querySelector("[data-card]")!.getAttribute("data-state")).toBe(
+      "resolved",
+    );
+    expect(button("[data-copy]").disabled).toBe(false);
+  });
+  it("tracks real analysis progress, handles loading without a percentage and resets on completion", async () => {
+    await mount();
+    expect(stepStates()).toEqual([
+      "complete",
+      "current",
+      "upcoming",
+      "upcoming",
+    ]);
+    let resolve!: (value: ReviewSession) => void;
+    call.mockImplementationOnce(
+      () =>
+        new Promise((yes) => {
+          resolve = yes;
+        }),
+    );
+    input(source);
+    button("[data-detect]").click();
+    expect(progressBar().hidden).toBe(false);
+    expect(progressBar().hasAttribute("value")).toBe(false);
+    progress({
+      operation: 1,
+      stage: "Finding named entities",
+      completed: 2,
+      total: 10,
+    });
+    expect(progressBar().value).toBe(20);
+    expect(root.querySelector("[data-work-detail]")!.textContent).toContain(
+      "Section 2 of 10",
+    );
+    progress({ operation: 999, stage: "Stale", completed: 10, total: 10 });
+    expect(progressBar().value).toBe(20);
+    progress({
+      operation: 1,
+      stage: "Loading local model",
+      completed: 0,
+      total: 0,
+    });
+    expect(progressBar().hasAttribute("value")).toBe(false);
+    resolve(view);
+    await flush();
+    expect(progressBar().hidden).toBe(true);
+    expect(progressBar().hasAttribute("value")).toBe(false);
+    expect(stepStates()).toEqual([
+      "complete",
+      "complete",
+      "current",
+      "upcoming",
+    ]);
+  });
+  it("does not complete the final stage when a rescan fails or discovers another proposal", async () => {
+    await mount();
+    await detect();
+    await click('[data-action="accept"]');
+    expect(stepStates()).toEqual([
+      "complete",
+      "complete",
+      "complete",
+      "current",
+    ]);
+    let reject!: (value: string) => void;
+    call.mockImplementationOnce(
+      () =>
+        new Promise((_, no) => {
+          reject = no;
+        }),
+    );
+    button("[data-rescan]").click();
+    expect(progressBar().getAttribute("aria-label")).toBe(
+      "Final check progress",
+    );
+    expect(progressBar().hidden).toBe(false);
+    reject("The final check could not finish.");
+    await flush();
+    expect(progressBar().hidden).toBe(true);
+    expect(stepStates()[3]).toBe("current");
+    expect(button("[data-copy]").disabled).toBe(true);
+    call.mockResolvedValueOnce(initial);
+    await click("[data-rescan]");
+    expect(stepStates()).toEqual([
+      "complete",
+      "complete",
+      "current",
+      "upcoming",
+    ]);
+  });
   it("does not offer native processing in a browser-only preview", async () => {
     await mount(false);
     input(source);
@@ -225,12 +450,24 @@ describe("text review", () => {
     expect(root.textContent).toContain("Finding entities · 50%");
     await click("[data-cancel]");
     expect(call).toHaveBeenLastCalledWith("cancel_operation", { operation: 1 });
+    expect(progressBar().hasAttribute("value")).toBe(false);
+    expect(button("[data-cancel]").disabled).toBe(true);
+    progress({ operation: 1, stage: "Late progress", completed: 2, total: 2 });
+    expect(root.textContent).toContain("Cancelling…");
+    expect(root.textContent).not.toContain("Late progress");
     reject("Operation cancelled.");
     await flush();
     expect(root.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
       source,
     );
     expect(button("[data-home]").disabled).toBe(false);
+    expect(progressBar().hidden).toBe(true);
+    expect(stepStates()).toEqual([
+      "complete",
+      "current",
+      "upcoming",
+      "upcoming",
+    ]);
   });
   it("requires confirmation before clearing the native and displayed session", async () => {
     await mount();
@@ -272,6 +509,14 @@ describe("text review", () => {
     );
     const mounting = mount();
     await flush();
+    expect(stepStates()).toEqual([
+      "current",
+      "upcoming",
+      "upcoming",
+      "upcoming",
+    ]);
+    expect(progressBar().hidden).toBe(false);
+    expect(progressBar().hasAttribute("value")).toBe(false);
     input(source);
     await click("[data-discard]");
     const dialog = root.querySelector("dialog");
@@ -285,6 +530,7 @@ describe("text review", () => {
     expect(root.querySelector("dialog")).toBe(dialog);
     expect(dialog?.open).toBe(true);
     await click("[data-stay]");
+    expect(progressBar().hidden).toBe(true);
     expect(button("[data-detect]").disabled).toBe(false);
     expect(root.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
       source,
