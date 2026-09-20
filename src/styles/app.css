@@ -19,6 +19,15 @@ button {
   font: inherit;
 }
 
+.welcome-start {
+  border: 1px solid #006f70;
+  border-radius: 6px;
+  padding: 0.85rem 1.2rem;
+  background: #006f70;
+  color: white;
+  cursor: pointer;
+}
+
 .welcome {
   --ink: #122426;
   --paper: #dfe7e2;

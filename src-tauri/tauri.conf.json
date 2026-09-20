@@ -29,6 +29,14 @@
     "active": true,
     "category": "Medical",
     "targets": ["dmg"],
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../licenses/": "licenses/"
+    },
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "icon": ["icons/icon.icns"]
   }
 }

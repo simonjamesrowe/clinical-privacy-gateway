@@ -1,7 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { aboutBuildLine, localBuildInfo, type BuildInfo } from "./build-info";
 import "./styles/app.css";
+import { TextReviewPage } from "./privacy/page";
+import type { Progress } from "./privacy/types";
 
 const applicationRoot = document.querySelector<HTMLElement>("#app");
 
@@ -11,6 +13,7 @@ if (!applicationRoot) {
 
 const app: HTMLElement = applicationRoot;
 let buildInfo = localBuildInfo;
+let page: TextReviewPage | null = null;
 
 function aboutMarkup(): string {
   return `
@@ -39,7 +42,8 @@ function render(): void {
       <div class="welcome__copy">
         <p class="eyebrow">A local-first workspace</p>
         <h1 id="welcome-heading">Welcome to<br /><em>Clinician’s Veil.</em></h1>
-        <p class="welcome__description">A considered place for future clinical privacy work, beginning with control remaining on this Mac.</p>
+        <p class="welcome__description">Find possible identifiers, review each replacement, and keep your source text on this Mac.</p>
+        <button type="button" class="welcome-start" data-open-review>De-identify text →</button>
       </div>
       <footer class="welcome__footer">
         <span>${aboutBuildLine(buildInfo)}</span>
@@ -54,6 +58,28 @@ function render(): void {
   app
     .querySelector<HTMLButtonElement>("[data-close-about]")
     ?.addEventListener("click", closeAbout);
+  app
+    .querySelector<HTMLButtonElement>("[data-open-review]")
+    ?.addEventListener("click", () => {
+      const workspace = document.createElement("div");
+      app.querySelector(".welcome")?.replaceWith(workspace);
+      page = new TextReviewPage(
+        workspace,
+        {
+          available: isTauri(),
+          call: invoke,
+          progress: (callback) =>
+            listen<Progress>("privacy-progress", (event) =>
+              callback(event.payload),
+            ),
+        },
+        () => {
+          page = null;
+          render();
+        },
+      );
+      void page.mount();
+    });
 }
 
 function aboutDialog(): HTMLDialogElement | null {
@@ -76,9 +102,9 @@ async function loadBuildInfo(): Promise<void> {
     // label makes that state explicit without exposing host details.
     buildInfo = localBuildInfo;
   }
-  render();
+  if (!page) render();
 }
 
 render();
 void loadBuildInfo();
-void listen("show-about", showAbout);
+if (isTauri()) void listen("show-about", showAbout);

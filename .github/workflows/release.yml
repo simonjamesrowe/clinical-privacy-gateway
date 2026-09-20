@@ -33,6 +33,8 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --workspace
       - run: npm run tauri build -- --target aarch64-apple-darwin
+      - name: Verify packaged app signature
+        run: bash scripts/verify-macos-dmg.sh target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
       - name: Resolve release metadata
         id: release
         env:

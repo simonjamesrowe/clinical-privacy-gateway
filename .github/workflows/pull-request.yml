@@ -27,6 +27,8 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --workspace
       - run: npm run tauri build -- --target aarch64-apple-darwin
+      - name: Verify packaged app signature
+        run: bash scripts/verify-macos-dmg.sh target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: clinicians-veil-pr-${{ github.event.pull_request.number || github.run_number }}-arm64-dmg

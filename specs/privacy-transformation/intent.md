@@ -2,6 +2,9 @@
 
 **Status:** Planned for the first release
 
+The [in-memory text-review slice](../text-review/intent.md) implements explicit
+placeholders and removal, not automatic roles, generalisation or LLM cleanup.
+
 ## Intent
 
 Turn detections into consistent, clinically meaningful proposals while leaving

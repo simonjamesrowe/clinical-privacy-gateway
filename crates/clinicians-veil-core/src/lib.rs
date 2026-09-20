@@ -1,5 +1,7 @@
 //! Framework-independent domain types for Clinician's Veil.
 
+pub mod privacy;
+
 /// Identifies the exact build shown to the person using the application.
 ///
 /// This contains release metadata only; it must never contain clinical
