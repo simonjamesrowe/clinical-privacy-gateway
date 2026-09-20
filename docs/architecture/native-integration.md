@@ -59,6 +59,10 @@ content-free messages; progress events carry only stage/count/operation metadata
 
 ## Development and packaging
 
+- The primary macOS window is maximized from native setup, after AppKit has
+  created it, preserving the macOS menu bar and dock rather than entering a
+  separate full-screen space. Do not combine config-time centring and
+  maximisation; that can leave the window offset from the available desktop.
 - Use Safari Web Inspector for WKWebView debugging; enable development tools in
   development builds only.
 - Configure rust-analyzer with a separate target directory and use `cargo check`

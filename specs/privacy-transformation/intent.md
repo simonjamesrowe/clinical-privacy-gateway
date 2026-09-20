@@ -32,8 +32,11 @@ and treatment meaning without unnecessarily retaining identifying precision.
 - Transformations are proposals until reviewed.
 - Cleanup preserves clinical uncertainty and does not silently change numbers,
   dosage, chronology, negation, diagnosis, risk, or speaker attribution.
-- Replacement consistency is scoped to one note in the first release; no hidden
-  client profile is built.
+- Replacement consistency is scoped to one note unless the clinician explicitly
+  saves an accepted or edited exact phrase/category mapping in the encrypted
+  global library or for the selected patient. A saved mapping applies as an
+  accepted exact-match decision on later notes, unless the clinician chooses to
+  review saved mappings for that note. It never acts as hidden client profiling.
 - Generalisation preserves clinically relevant detail when the clinician keeps
   it deliberately.
 
@@ -47,6 +50,6 @@ and treatment meaning without unnecessarily retaining identifying precision.
 
 ## Non-goals
 
-Persistent client dictionaries, preset minimal/standard/maximum privacy modes,
+Client profiles, preset minimal/standard/maximum privacy modes,
 automatic report generation, diagnostic reasoning, and stylistic rewriting
 beyond constrained cleanup are outside this release.

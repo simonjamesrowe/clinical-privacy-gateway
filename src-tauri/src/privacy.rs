@@ -1,3 +1,4 @@
+use crate::storage::{MappingView, NoteSummary, NoteView, PatientView, Storage};
 use clinicians_veil_core::privacy::{self, Decision, PrivacyResult, Session, SessionView};
 use clinicians_veil_ner::{assets, detect};
 use serde::Serialize;
@@ -14,26 +15,35 @@ use tauri::{AppHandle, Emitter, State};
 pub struct PrivacyState {
     inner: Arc<Mutex<Inner>>,
     root: PathBuf,
+    storage: Option<Storage>,
 }
 #[derive(Default)]
 struct Inner {
     session: Option<Session>,
+    patient_id: Option<i64>,
+    note_id: Option<i64>,
     active: Option<(u64, Arc<AtomicBool>)>,
     next_session: u64,
 }
 
 impl PrivacyState {
-    pub fn new(root: PathBuf) -> Self {
+    pub fn new(root: PathBuf, storage_root: PathBuf) -> Self {
         assets::cleanup(&root);
         Self {
             inner: Arc::new(Mutex::new(Inner::default())),
             root,
+            storage: Storage::open(&storage_root).ok(),
         }
     }
     fn lock(&self) -> PrivacyResult<MutexGuard<'_, Inner>> {
         self.inner
             .lock()
             .map_err(|_| "The review session is unavailable. Restart the app.")
+    }
+    fn storage(&self) -> PrivacyResult<&Storage> {
+        self.storage
+            .as_ref()
+            .ok_or("The encrypted note library is unavailable. Reopen the app and try again.")
     }
     fn begin(&self, operation: u64) -> PrivacyResult<Operation> {
         let mut inner = self.lock()?;
@@ -54,6 +64,8 @@ impl PrivacyState {
             cancel.store(true, Ordering::Relaxed);
         }
         inner.session = None;
+        inner.patient_id = None;
+        inner.note_id = None;
         Ok(())
     }
 }
@@ -103,6 +115,13 @@ pub struct ModelStatus {
     revision: &'static str,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenedNote {
+    note: NoteView,
+    session: SessionView,
+}
+
 #[tauri::command]
 pub async fn model_status(state: State<'_, PrivacyState>) -> PrivacyResult<ModelStatus> {
     let root = state.root.clone();
@@ -130,6 +149,33 @@ pub async fn install_model(
     })
     .await
     .map_err(|_| "Model installation could not finish.")?
+}
+
+#[tauri::command]
+pub fn remove_model(state: State<'_, PrivacyState>) -> PrivacyResult<()> {
+    let inner = state.lock()?;
+    if inner.active.is_some() {
+        return Err("Wait for processing to finish.");
+    }
+    drop(inner);
+    assets::remove(&state.root)
+}
+
+#[tauri::command]
+pub async fn replace_model(
+    app: AppHandle,
+    state: State<'_, PrivacyState>,
+    operation: u64,
+) -> PrivacyResult<()> {
+    let op = state.begin(operation)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        assets::remove(&op.state.root)?;
+        assets::install(&op.state.root, &op.cancel, |done, total| {
+            progress(&app, op.id, "Replacing model", done, total)
+        })
+    })
+    .await
+    .map_err(|_| "Model replacement could not finish.")?
 }
 
 #[tauri::command]
@@ -180,18 +226,51 @@ pub async fn detect_text(
     state: State<'_, PrivacyState>,
     operation: u64,
     source: String,
+    patient_id: Option<i64>,
+    review_saved_mappings: bool,
 ) -> PrivacyResult<SessionView> {
     privacy::validate_source(&source)?;
+    if let Some(patient_id) = patient_id {
+        state.storage()?.patient(patient_id)?;
+    }
+    let library_matches = state.storage()?.matches(&source, patient_id)?;
     let op = state.begin(operation)?;
     let id = {
         let mut inner = state.lock()?;
         inner.session = None;
+        inner.patient_id = patient_id;
+        inner.note_id = None;
         inner.next_session += 1;
         inner.next_session
     };
     tauri::async_runtime::spawn_blocking(move || {
-        let evidence = run_detectors(&app, &op, &source)?;
-        let session = Session::new(id, source, evidence)?;
+        let mut evidence = run_detectors(&app, &op, &source)?;
+        evidence.extend(library_matches.iter().map(|matched| privacy::Evidence {
+            span: privacy::Span {
+                start: matched.start,
+                end: matched.end,
+            },
+            category: matched.category,
+            confidence: 1.0,
+            stage: "library",
+        }));
+        let mut session = Session::new(id, source, evidence)?;
+        session.apply_library_defaults(
+            library_matches
+                .into_iter()
+                .map(|matched| {
+                    (
+                        privacy::Span {
+                            start: matched.start,
+                            end: matched.end,
+                        },
+                        matched.category,
+                        matched.replacement,
+                    )
+                })
+                .collect(),
+            review_saved_mappings,
+        );
         let mut inner = op.state.lock()?;
         assets::cancelled(&op.cancel)?;
         let view = session.view();
@@ -300,6 +379,232 @@ pub fn copy_reviewed_text(
         .map_err(|_| "The clipboard is unavailable. Please try again.")
 }
 
+#[tauri::command]
+pub fn save_reviewed_note(
+    state: State<'_, PrivacyState>,
+    session_id: u64,
+    revision: u64,
+    title: String,
+) -> PrivacyResult<NoteView> {
+    let inner = state.lock()?;
+    if inner.active.is_some() {
+        return Err("Wait for processing to finish.");
+    }
+    let session = inner.session.as_ref().ok_or("Start a new review.")?;
+    let patient_id = inner
+        .patient_id
+        .ok_or("Start a new note for a patient first.")?;
+    session.matches(session_id, revision)?;
+    let (source_text, reviewed_text, provenance) = session.saveable_note()?;
+    let note_id = inner.note_id;
+    drop(inner);
+    if let Some(note_id) = note_id {
+        state.storage()?.update_note(
+            note_id,
+            patient_id,
+            &title,
+            &source_text,
+            &reviewed_text,
+            &provenance,
+        )
+    } else {
+        state.storage()?.save_note(
+            patient_id,
+            &title,
+            None,
+            &source_text,
+            &reviewed_text,
+            &provenance,
+        )
+    }
+}
+
+#[tauri::command]
+pub fn search_notes(
+    state: State<'_, PrivacyState>,
+    query: String,
+) -> PrivacyResult<Vec<NoteSummary>> {
+    state.storage()?.search_notes(&query)
+}
+
+#[tauri::command]
+pub fn note_detail(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<NoteView> {
+    state.storage()?.note(id)
+}
+
+#[tauri::command]
+pub fn open_saved_note(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<OpenedNote> {
+    let note = state.storage()?.note(id)?;
+    let patient_id = note
+        .patient_id
+        .ok_or("This saved note no longer has a patient.")?;
+    let source_text = note
+        .source_text
+        .as_deref()
+        .ok_or("This older note does not include its original text.")?;
+    let mut inner = state.lock()?;
+    if inner.active.is_some() {
+        return Err("Wait for processing to finish.");
+    }
+    inner.next_session += 1;
+    let session = Session::restore(inner.next_session, &note.provenance)?;
+    if session.view().source != source_text {
+        return Err("The saved review record is unavailable.");
+    }
+    let view = session.view();
+    inner.session = Some(session);
+    inner.patient_id = Some(patient_id);
+    inner.note_id = Some(id);
+    Ok(OpenedNote {
+        note,
+        session: view,
+    })
+}
+
+#[tauri::command]
+pub fn delete_note(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<()> {
+    state.storage()?.delete_note(id)
+}
+
+#[tauri::command]
+pub fn delete_patient(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<()> {
+    state.storage()?.delete_patient(id)
+}
+
+#[tauri::command]
+pub fn copy_note(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<()> {
+    let note = state.storage()?.note(id)?;
+    arboard::Clipboard::new()
+        .and_then(|mut clipboard| clipboard.set_text(note.reviewed_text))
+        .map_err(|_| "The clipboard is unavailable. Please try again.")
+}
+
+#[tauri::command]
+pub fn list_mappings(state: State<'_, PrivacyState>) -> PrivacyResult<Vec<MappingView>> {
+    state.storage()?.mappings()
+}
+
+#[tauri::command]
+pub fn list_patient_mappings(
+    state: State<'_, PrivacyState>,
+    patient_id: i64,
+) -> PrivacyResult<Vec<MappingView>> {
+    state.storage()?.patient_mappings(patient_id)
+}
+
+#[tauri::command]
+pub fn list_patients(state: State<'_, PrivacyState>) -> PrivacyResult<Vec<PatientView>> {
+    state.storage()?.patients()
+}
+
+#[tauri::command]
+pub fn create_patient(
+    state: State<'_, PrivacyState>,
+    name: String,
+    patient_reference: Option<String>,
+) -> PrivacyResult<PatientView> {
+    state
+        .storage()?
+        .create_patient(&name, patient_reference.as_deref())
+}
+
+#[tauri::command]
+pub fn create_mapping(
+    state: State<'_, PrivacyState>,
+    phrase: String,
+    category: privacy::Category,
+    replacement: String,
+) -> PrivacyResult<MappingView> {
+    state
+        .storage()?
+        .create_mapping(&phrase, category, &replacement)
+}
+
+#[tauri::command]
+pub fn update_mapping(
+    state: State<'_, PrivacyState>,
+    id: i64,
+    phrase: String,
+    category: privacy::Category,
+    replacement: String,
+) -> PrivacyResult<MappingView> {
+    state
+        .storage()?
+        .update_mapping(id, &phrase, category, &replacement)
+}
+
+#[tauri::command]
+pub fn delete_mapping(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<()> {
+    state.storage()?.delete_mapping(id)
+}
+
+#[tauri::command]
+pub fn create_patient_mapping(
+    state: State<'_, PrivacyState>,
+    patient_id: i64,
+    phrase: String,
+    category: privacy::Category,
+    replacement: String,
+) -> PrivacyResult<MappingView> {
+    state
+        .storage()?
+        .create_patient_mapping(patient_id, &phrase, category, &replacement)
+}
+
+#[tauri::command]
+pub fn update_patient_mapping(
+    state: State<'_, PrivacyState>,
+    patient_id: i64,
+    id: i64,
+    phrase: String,
+    category: privacy::Category,
+    replacement: String,
+) -> PrivacyResult<MappingView> {
+    state
+        .storage()?
+        .update_patient_mapping(patient_id, id, &phrase, category, &replacement)
+}
+
+#[tauri::command]
+pub fn delete_patient_mapping(
+    state: State<'_, PrivacyState>,
+    patient_id: i64,
+    id: i64,
+) -> PrivacyResult<()> {
+    state.storage()?.delete_patient_mapping(patient_id, id)
+}
+
+#[tauri::command]
+pub fn save_mapping_from_review(
+    state: State<'_, PrivacyState>,
+    session_id: u64,
+    revision: u64,
+    item: u64,
+    patient_scope: bool,
+) -> PrivacyResult<MappingView> {
+    let inner = state.lock()?;
+    if inner.active.is_some() {
+        return Err("Wait for processing to finish.");
+    }
+    let session = inner.session.as_ref().ok_or("Start a new review.")?;
+    session.matches(session_id, revision)?;
+    let mapping = session.mapping_for_group(item)?;
+    let patient_id = inner.patient_id;
+    drop(inner);
+    if patient_scope {
+        state.storage()?.upsert_patient_mapping(
+            patient_id.ok_or("Choose a patient before saving a patient-specific mapping.")?,
+            &mapping.phrase,
+            mapping.category,
+            &mapping.replacement,
+        )
+    } else {
+        state
+            .storage()?
+            .upsert_mapping(&mapping.phrase, mapping.category, &mapping.replacement)
+    }
+}
+
 fn reviewed_output(inner: &Inner, session_id: u64, revision: u64) -> PrivacyResult<String> {
     if inner.active.is_some() {
         return Err("Wait for processing to finish.");
@@ -319,6 +624,7 @@ mod tests {
                 ..Inner::default()
             })),
             root: PathBuf::from("/nonexistent/veil-test"),
+            storage: None,
         }
     }
     #[test]

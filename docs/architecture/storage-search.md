@@ -16,23 +16,32 @@ SQL or `rusqlite` types.
 
 The database contains:
 
-- reviewed notes and revision metadata;
-- encrypted detection and review provenance;
+- patient records, source text, reviewed notes, and revision metadata;
+- encrypted detection and review snapshots, sufficient to reopen the same
+  editable review workspace;
+- encrypted global and patient-specific identifier mappings, including their
+  matched phrase and clinician-approved placeholder;
 - temporary source audio, original transcript segments, and alignments;
 - expiry metadata and deletion tombstones while a transaction completes; and
-- the FTS5 index over reviewed-note text.
+- the FTS5 index over reviewed-note text, title, and legacy optional patient
+  reference.
 
-Pasted source text is never committed. Audio and original ASR transcripts expire
-30 days after the reviewed note is created, even if the note is retained.
+When a clinician saves a pasted-text note, its source text is committed with the
+reviewed text and review snapshot in the same encrypted record. Source text is
+not indexed. Audio and original ASR transcripts expire 30 days after the
+reviewed note is created, even if the note is retained.
 
 Writes that save a note, provenance, retention schedule, and FTS entry are one
 transaction. Expiry and explicit deletion are idempotent and remove primary and
-derived records together.
+derived records together. Deleting a patient transactionally removes their
+notes, corresponding FTS entries, and patient-specific mappings before deleting
+the patient record.
 
 ## Keyword search
 
-The first release uses FTS5 with BM25 ranking over reviewed-note text and the
-minimum non-clinical metadata needed for filtering. Queries execute locally and
+The first release uses FTS5 with BM25 ranking over reviewed-note text, title,
+and a legacy optional patient reference. Patient names are relational metadata,
+shown with a note but excluded from the search index. Queries execute locally and
 never reach an analytics or external search service. Search results reveal only
 content the unlocked application could already display.
 

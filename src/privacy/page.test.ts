@@ -59,7 +59,10 @@ function input(value: string) {
   field.value = value;
   field.dispatchEvent(new Event("input", { bubbles: true }));
 }
-async function mount(available = true) {
+async function mount(
+  available = true,
+  initialScreen: "patients" | "review" | "notes" = "review",
+) {
   const bridge: PrivacyBridge = {
     available,
     call: <T>(command: string, args?: Record<string, unknown>) =>
@@ -69,7 +72,7 @@ async function mount(available = true) {
       return unsubscribe;
     },
   };
-  page = new TextReviewPage(root, bridge, vi.fn());
+  page = new TextReviewPage(root, bridge, vi.fn(), initialScreen);
   await page.mount();
 }
 async function detect() {
@@ -90,17 +93,27 @@ beforeEach(() => {
         bytes: 110_000_000,
         revision: "fixture",
       };
+    if (command === "list_mappings" || command === "search_notes") return [];
     if (command === "review_decision") {
+      const item = args?.item;
+      const decision = args?.decision;
       view = {
         ...view,
         revision: view.revision + 1,
-        pending: 0,
+        pending: view.items.filter(
+          (current) => current.id !== item && current.decision === "pending",
+        ).length,
+        retained: decision === "keep" ? view.retained + 1 : view.retained,
         checked: false,
-        items: view.items.map((i) => ({
-          ...i,
-          decision: args?.decision,
-          replacement: args?.replacement,
-        })),
+        items: view.items.map((current) =>
+          current.id === item
+            ? {
+                ...current,
+                decision,
+                replacement: args?.replacement,
+              }
+            : current,
+        ),
       } as ReviewSession;
     }
     if (command === "rescan_text")
@@ -133,6 +146,176 @@ const progressBar = () =>
   root.querySelector<HTMLProgressElement>("[data-progress]")!;
 
 describe("text review", () => {
+  it("starts a new note from a patient and includes that patient in detection", async () => {
+    call.mockImplementation(async (command: string) => {
+      if (command === "model_status")
+        return {
+          installed: true,
+          name: "BERT",
+          bytes: 110_000_000,
+          revision: "fixture",
+        };
+      if (command === "list_patients")
+        return [{ id: 7, name: "Synthetic Client", patientReference: "SYN-7" }];
+      return view;
+    });
+    await mount(true, "patients");
+    expect(root.textContent).toContain("Synthetic Client");
+    root
+      .querySelector<HTMLButtonElement>("[data-patient-list] button")!
+      .click();
+    input(source);
+    await click("[data-detect]");
+    expect(
+      root.querySelector<HTMLInputElement>("[data-save-default]")!.checked,
+    ).toBe(true);
+    expect(
+      root.querySelector<HTMLSelectElement>("[data-mapping-scope]")!.value,
+    ).toBe("patient");
+    expect(call).toHaveBeenLastCalledWith(
+      "detect_text",
+      expect.objectContaining({
+        patientId: 7,
+        source,
+        reviewSavedMappings: false,
+      }),
+    );
+  });
+  it("selects the complete placeholder whenever its field receives focus", async () => {
+    await mount();
+    await detect();
+    const label = root.querySelector<HTMLInputElement>("[data-label]")!;
+    expect(label.selectionStart).toBe(0);
+    expect(label.selectionEnd).toBe(label.value.length);
+    button('[data-action="keep"]').focus();
+    label.focus();
+    expect(label.selectionStart).toBe(0);
+    expect(label.selectionEnd).toBe(label.value.length);
+  });
+  it("confirms patient deletion before removing their encrypted records", async () => {
+    call.mockImplementation(async (command: string) => {
+      if (command === "model_status")
+        return {
+          installed: true,
+          name: "BERT",
+          bytes: 110_000_000,
+          revision: "fixture",
+        };
+      if (command === "list_patients")
+        return [{ id: 7, name: "Synthetic Client", patientReference: "SYN-7" }];
+      return view;
+    });
+    await mount(true, "patients");
+    const actions = root.querySelectorAll<HTMLButtonElement>(
+      "[data-patient-list] button",
+    );
+    actions[1].click();
+    await flush();
+    expect(root.querySelector("dialog")?.textContent).toContain(
+      "Are you really sure you want to delete this?",
+    );
+    await click("[data-cancel-delete]");
+    expect(call).not.toHaveBeenCalledWith("delete_patient", expect.anything());
+
+    actions[1].click();
+    await flush();
+    await click("[data-confirm-delete]");
+    expect(call).toHaveBeenCalledWith("delete_patient", { id: 7 });
+  });
+  it("can return saved mappings to the review queue for one note", async () => {
+    await mount();
+    input(source);
+    const option = root.querySelector<HTMLInputElement>(
+      "[data-review-saved-mappings]",
+    )!;
+    expect(option.checked).toBe(false);
+    option.checked = true;
+    option.dispatchEvent(new Event("change"));
+    await click("[data-detect]");
+    expect(call).toHaveBeenLastCalledWith(
+      "detect_text",
+      expect.objectContaining({ reviewSavedMappings: true }),
+    );
+  });
+  it("presents notes in a searchable table and reopens one in the review workspace", async () => {
+    call.mockImplementation(async (command: string) => {
+      if (command === "model_status")
+        return {
+          installed: true,
+          name: "BERT",
+          bytes: 110_000_000,
+          revision: "fixture",
+        };
+      if (command === "search_notes")
+        return [
+          {
+            id: 4,
+            patientName: "Synthetic Client",
+            patientReference: "SYN-4",
+            title: "Synthetic review",
+            snippet: "[CLIENT] attended.",
+          },
+        ];
+      if (command === "open_saved_note")
+        return {
+          note: {
+            id: 4,
+            patientId: 7,
+            patientName: "Synthetic Client",
+            patientReference: "SYN-4",
+            title: "Synthetic review",
+            sourceText: source,
+            reviewedText: initial.output,
+            provenance: "{}",
+            createdAt: 1,
+          },
+          session: initial,
+        };
+      return view;
+    });
+    await mount(true, "notes");
+    expect(root.querySelector(".notes-table")?.textContent).toContain(
+      "Patient number",
+    );
+    expect(root.querySelector(".notes-table")?.textContent).toContain(
+      "Synthetic review",
+    );
+    await click(".notes-table button");
+    expect(root.querySelector("#review-title")?.textContent).toBe(
+      "De-identify text",
+    );
+    expect(root.querySelector("[data-source]")?.textContent).toBe(source);
+  });
+  it("confirms note deletion before removing the note", async () => {
+    call.mockImplementation(async (command: string) => {
+      if (command === "model_status")
+        return {
+          installed: true,
+          name: "BERT",
+          bytes: 110_000_000,
+          revision: "fixture",
+        };
+      if (command === "search_notes")
+        return [
+          {
+            id: 4,
+            patientName: "Synthetic Client",
+            patientReference: "SYN-4",
+            title: "Synthetic review",
+            snippet: "[CLIENT] attended.",
+          },
+        ];
+      return view;
+    });
+    await mount(true, "notes");
+    root.querySelectorAll<HTMLButtonElement>(".notes-table button")[1].click();
+    await flush();
+    expect(root.querySelector("dialog")?.textContent).toContain(
+      "Are you really sure you want to delete this?",
+    );
+    await click("[data-confirm-delete]");
+    expect(call).toHaveBeenCalledWith("delete_note", { id: 4 });
+  });
   it("keeps verification incomplete when a model download fails and bounds its progress", async () => {
     call.mockResolvedValueOnce({
       installed: false,
@@ -142,6 +325,12 @@ describe("text review", () => {
     });
     await mount();
     let reject!: (error: string) => void;
+    call.mockResolvedValueOnce({
+      installed: false,
+      name: "BERT",
+      bytes: 110,
+      revision: "fixture",
+    });
     call.mockImplementationOnce(
       () =>
         new Promise((_, no) => {
@@ -149,37 +338,39 @@ describe("text review", () => {
         }),
     );
     button("[data-install]").click();
-    expect(progressBar().getAttribute("aria-label")).toBe(
-      "Model download progress",
-    );
+    await flush();
+    expect(root.querySelector("#settings-title")?.textContent).toBe("Settings");
+    button("[data-settings-install]").click();
     progress({
       operation: 1,
       stage: "Downloading model",
       completed: 55,
       total: 110,
     });
-    expect(progressBar().value).toBe(50);
+    expect(
+      root.querySelector<HTMLProgressElement>("[data-overlay-progress]")!.value,
+    ).toBe(50);
     progress({
       operation: 1,
       stage: "Downloading model",
       completed: 120,
       total: 110,
     });
-    expect(progressBar().value).toBe(100);
-    expect(stepStates()[0]).toBe("current");
+    expect(
+      root.querySelector<HTMLProgressElement>("[data-overlay-progress]")!.value,
+    ).toBe(100);
+    expect(root.querySelector("[data-overlay]")?.hasAttribute("hidden")).toBe(
+      false,
+    );
     reject("Model download failed.");
     await flush();
-    expect(progressBar().hidden).toBe(true);
-    expect(stepStates()).toEqual([
-      "current",
-      "upcoming",
-      "upcoming",
-      "upcoming",
-    ]);
-    expect(button("[data-install]").disabled).toBe(false);
-    expect(
-      root.querySelector(".workflow-panel [data-error]")!.textContent,
-    ).toBe("Model download failed.");
+    expect(root.querySelector("[data-overlay]")?.hasAttribute("hidden")).toBe(
+      true,
+    );
+    expect(button("[data-settings-install]").disabled).toBe(false);
+    expect(root.querySelector("[data-error]")!.textContent).toBe(
+      "Model download failed.",
+    );
   });
   it("uppercases typing and formats on blur without approving the draft", async () => {
     await mount();
@@ -194,7 +385,7 @@ describe("text review", () => {
       "pending",
     );
     await click('[data-action="edit"]');
-    expect(call).toHaveBeenLastCalledWith(
+    expect(call).toHaveBeenCalledWith(
       "review_decision",
       expect.objectContaining({
         decision: "edit",
@@ -204,6 +395,169 @@ describe("text review", () => {
     expect(root.querySelector("[data-card]")!.getAttribute("data-state")).toBe(
       "resolved",
     );
+  });
+  it("keeps resolved groups available in the wizard and review history", async () => {
+    await mount();
+    await detect();
+    await click('[data-action="accept"]');
+    expect(root.querySelector("[data-wizard-card] [data-card]")).not.toBeNull();
+    expect(root.querySelector("[data-wizard-card]")!.textContent).toContain(
+      "accepted",
+    );
+    const resolved = root.querySelector<HTMLDetailsElement>(
+      "[data-resolved-items]",
+    )!;
+    expect(resolved.hidden).toBe(false);
+    expect(resolved.textContent).toContain("1 resolved item");
+    resolved.open = true;
+    resolved.dispatchEvent(new Event("toggle"));
+    expect(
+      root.querySelector("[data-resolved-detections] [data-card]"),
+    ).not.toBeNull();
+  });
+  it("shows one action at a time and advances the review progress", async () => {
+    view = {
+      ...initial,
+      output: "[PERSON_1] takes [REFERENCE_1] mg.",
+      pending: 2,
+      items: [
+        ...initial.items,
+        {
+          id: 2,
+          group: 2,
+          start: 18,
+          end: 20,
+          outputStart: 17,
+          outputEnd: 30,
+          category: "MISC",
+          replacement: "[REFERENCE_1]",
+          decision: "pending",
+          stages: ["rules"],
+          confidence: 1,
+          reason: "Identifier pattern.",
+        },
+      ],
+    };
+    await mount();
+    await detect();
+    expect(
+      root.querySelectorAll("[data-wizard-card] [data-card]"),
+    ).toHaveLength(1);
+    expect(root.querySelector("[data-wizard-card]")!.textContent).toContain(
+      "Alex Morgan",
+    );
+    expect(
+      root
+        .querySelector('[data-source] [data-item="1"]')
+        ?.getAttribute("data-active-review"),
+    ).toBe("true");
+    expect(
+      root
+        .querySelector('[data-output] [data-item="1"]')
+        ?.getAttribute("data-active-review"),
+    ).toBe("true");
+    expect(root.querySelector("[data-wizard-count]")!.textContent).toBe(
+      "Item 1 of 2",
+    );
+    expect(
+      root.querySelector<HTMLProgressElement>("[data-review-progress]")!.value,
+    ).toBe(0);
+    expect(document.activeElement).toBe(
+      root.querySelector("[data-wizard-card] [data-label]"),
+    );
+
+    await click('[data-action="accept"]');
+    expect(root.querySelector("[data-wizard-card]")!.textContent).toContain(
+      "10",
+    );
+    expect(
+      root
+        .querySelector('[data-source] [data-item="2"]')
+        ?.getAttribute("data-active-review"),
+    ).toBe("true");
+    expect(
+      root
+        .querySelector('[data-output] [data-item="2"]')
+        ?.getAttribute("data-active-review"),
+    ).toBe("true");
+    expect(root.querySelector("[data-wizard-count]")!.textContent).toBe(
+      "Item 2 of 2",
+    );
+    expect(
+      root.querySelector<HTMLProgressElement>("[data-review-progress]")!.value,
+    ).toBe(1);
+    expect(root.querySelector("[data-wizard-progress]")!.textContent).toBe(
+      "1 action left",
+    );
+    expect(document.activeElement).toBe(
+      root.querySelector("[data-wizard-card] [data-label]"),
+    );
+
+    await click("[data-wizard-previous]");
+    expect(root.querySelector("[data-wizard-card]")!.textContent).toContain(
+      "Alex Morgan",
+    );
+    expect(document.activeElement).toBe(
+      root.querySelector("[data-wizard-card] [data-label]"),
+    );
+    await click("[data-wizard-next]");
+    expect(root.querySelector("[data-wizard-card]")!.textContent).toContain(
+      "10",
+    );
+    root.querySelector<HTMLElement>('[data-source] [data-item="1"]')!.click();
+    await flush();
+    expect(root.querySelector("[data-wizard-card]")!.textContent).toContain(
+      "Alex Morgan",
+    );
+    expect(
+      root.querySelector("[data-wizard-card] [data-decision]")!.textContent,
+    ).toContain("accepted");
+  });
+  it("scrolls only the paired previews to the selected occurrence", async () => {
+    await mount();
+    await detect();
+    const sourcePreview = root.querySelector<HTMLElement>("[data-source]")!;
+    const outputPreview = root.querySelector<HTMLElement>("[data-output]")!;
+    const sourceMark = sourcePreview.querySelector<HTMLElement>("mark")!;
+    const outputMark = outputPreview.querySelector<HTMLElement>("mark")!;
+    for (const preview of [sourcePreview, outputPreview]) {
+      Object.defineProperty(preview, "clientHeight", {
+        configurable: true,
+        value: 300,
+      });
+      vi.spyOn(preview, "getBoundingClientRect").mockReturnValue({
+        top: 100,
+        height: 300,
+      } as DOMRect);
+    }
+    for (const mark of [sourceMark, outputMark])
+      vi.spyOn(mark, "getBoundingClientRect").mockReturnValue({
+        top: 500,
+        height: 20,
+      } as DOMRect);
+
+    await click("[data-occurrences] button");
+    expect(sourcePreview.scrollTop).toBe(260);
+    expect(outputPreview.scrollTop).toBe(260);
+  });
+  it("opens local note, mapping, and model-management views from the workspace", async () => {
+    await mount();
+    const mappings = root.querySelector<HTMLButtonElement>(
+      '[data-route="mappings"]',
+    )!;
+    mappings.click();
+    await flush();
+    expect(root.querySelector("#mappings-title")?.textContent).toBe(
+      "Identifier mappings",
+    );
+    expect(root.textContent).toContain("No saved defaults yet.");
+    root.querySelector<HTMLButtonElement>('[data-route="notes"]')!.click();
+    await flush();
+    expect(root.querySelector("#notes-title")?.textContent).toBe("Notes");
+    root.querySelector<HTMLButtonElement>('[data-route="settings"]')!.click();
+    await flush();
+    expect(root.querySelector("#settings-title")?.textContent).toBe("Settings");
+    expect(root.querySelector("[data-model-panel]")).toBeNull();
   });
   it("normalises on Accept too, and keeps overlong errors beside the field", async () => {
     await mount();
@@ -219,7 +573,7 @@ describe("text review", () => {
     expect(call).toHaveBeenLastCalledWith("detect_text", expect.anything());
     editLabel("client name");
     await click('[data-action="accept"]');
-    expect(call).toHaveBeenLastCalledWith(
+    expect(call).toHaveBeenCalledWith(
       "review_decision",
       expect.objectContaining({
         decision: "edit",
@@ -278,6 +632,10 @@ describe("text review", () => {
     input(source);
     button("[data-detect]").click();
     expect(progressBar().hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>("[data-overlay]")!.hidden).toBe(
+      false,
+    );
+    expect(root.querySelector<HTMLElement>(".review-page")!.inert).toBe(true);
     expect(progressBar().hasAttribute("value")).toBe(false);
     progress({
       operation: 1,
@@ -301,6 +659,10 @@ describe("text review", () => {
     resolve(view);
     await flush();
     expect(progressBar().hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>("[data-overlay]")!.hidden).toBe(
+      true,
+    );
+    expect(root.querySelector<HTMLElement>(".review-page")!.inert).toBe(false);
     expect(progressBar().hasAttribute("value")).toBe(false);
     expect(stepStates()).toEqual([
       "complete",
@@ -309,41 +671,24 @@ describe("text review", () => {
       "upcoming",
     ]);
   });
-  it("does not complete the final stage when a rescan fails or discovers another proposal", async () => {
+  it("automatically checks the reviewed text after the last action", async () => {
     await mount();
     await detect();
     await click('[data-action="accept"]');
+    expect(call).toHaveBeenCalledWith(
+      "rescan_text",
+      expect.objectContaining({ sessionId: 1, revision: 1 }),
+    );
     expect(stepStates()).toEqual([
       "complete",
       "complete",
       "complete",
-      "current",
-    ]);
-    let reject!: (value: string) => void;
-    call.mockImplementationOnce(
-      () =>
-        new Promise((_, no) => {
-          reject = no;
-        }),
-    );
-    button("[data-rescan]").click();
-    expect(progressBar().getAttribute("aria-label")).toBe(
-      "Final check progress",
-    );
-    expect(progressBar().hidden).toBe(false);
-    reject("The final check could not finish.");
-    await flush();
-    expect(progressBar().hidden).toBe(true);
-    expect(stepStates()[3]).toBe("current");
-    expect(button("[data-copy]").disabled).toBe(true);
-    call.mockResolvedValueOnce(initial);
-    await click("[data-rescan]");
-    expect(stepStates()).toEqual([
       "complete",
-      "complete",
-      "current",
-      "upcoming",
     ]);
+    expect(button("[data-copy]").disabled).toBe(false);
+    expect(button("[data-copy-top]").disabled).toBe(false);
+    expect(button("[data-save-note]").disabled).toBe(false);
+    expect(button("[data-save-note-top]").disabled).toBe(false);
   });
   it("does not offer native processing in a browser-only preview", async () => {
     await mount(false);
@@ -362,15 +707,14 @@ describe("text review", () => {
     input(" \n");
     expect(button("[data-detect]").disabled).toBe(true);
   });
-  it("requires decisions and a successful rescan before requesting native copy", async () => {
+  it("requires decisions and an automatic successful final check before requesting native copy", async () => {
     await mount();
     await detect();
     expect(button("[data-copy]").disabled).toBe(true);
     expect(button("[data-rescan]").disabled).toBe(true);
     await click('[data-action="accept"]');
-    expect(button("[data-copy]").disabled).toBe(true);
-    expect(button("[data-rescan]").disabled).toBe(false);
-    await click("[data-rescan]");
+    expect(button("[data-copy]").disabled).toBe(false);
+    expect(button("[data-rescan]").disabled).toBe(true);
     await click("[data-copy]");
     expect(call).toHaveBeenLastCalledWith("copy_reviewed_text", {
       sessionId: 1,
@@ -382,18 +726,17 @@ describe("text review", () => {
     await mount();
     await detect();
     await click('[data-action="accept"]');
-    await click("[data-rescan]");
     const label = root.querySelector<HTMLInputElement>("[data-label]")!;
     label.value = "[CLIENT]";
     label.dispatchEvent(new Event("input"));
     expect(button("[data-copy]").disabled).toBe(true);
     await click('[data-action="edit"]');
-    expect(call).toHaveBeenLastCalledWith(
+    expect(call).toHaveBeenCalledWith(
       "review_decision",
       expect.objectContaining({ replacement: "[CLIENT]", decision: "edit" }),
     );
-    expect(button("[data-copy]").disabled).toBe(true);
-    expect(button("[data-rescan]").disabled).toBe(false);
+    expect(button("[data-copy]").disabled).toBe(false);
+    expect(button("[data-rescan]").disabled).toBe(true);
   });
   it("renders source markup as text, never executable HTML", async () => {
     view = {
@@ -422,9 +765,14 @@ describe("text review", () => {
   it("keeps copy blocked when the final check fails", async () => {
     await mount();
     await detect();
+    const original = call.getMockImplementation()!;
+    call.mockImplementation((command, args) => {
+      if (command === "rescan_text") {
+        return Promise.reject("The final check could not finish.");
+      }
+      return original(command, args);
+    });
     await click('[data-action="accept"]');
-    call.mockRejectedValueOnce("The final check could not finish.");
-    await click("[data-rescan]");
     expect(button("[data-copy]").disabled).toBe(true);
     expect(root.textContent).toContain("The final check could not finish.");
   });
@@ -489,6 +837,25 @@ describe("text review", () => {
     const range = document.createRange();
     range.selectNodeContents(sourceNode.querySelector("mark")!);
     window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    sourceNode.dispatchEvent(new MouseEvent("mouseup"));
+    expect(
+      root.querySelector<HTMLElement>("[data-selection-menu]")!.hidden,
+    ).toBe(false);
+    expect(root.querySelector("[data-selection-menu]")!.textContent).toContain(
+      "Add to review",
+    );
+    expect(
+      root.querySelector("[data-selection-menu]")!.getAttribute("role"),
+    ).toBe("menu");
+    button("[data-cancel-selection]").click();
+    expect(
+      root.querySelector<HTMLElement>("[data-selection-menu]")!.hidden,
+    ).toBe(true);
+    expect(call).not.toHaveBeenCalledWith(
+      "add_manual_detection",
+      expect.anything(),
+    );
     window.getSelection()!.addRange(range);
     sourceNode.dispatchEvent(new MouseEvent("mouseup"));
     await click("[data-manual]");

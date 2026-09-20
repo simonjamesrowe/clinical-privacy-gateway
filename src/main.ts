@@ -42,8 +42,8 @@ function render(): void {
       <div class="welcome__copy">
         <p class="eyebrow">A local-first workspace</p>
         <h1 id="welcome-heading">Welcome to<br /><em>Clinician’s Veil.</em></h1>
-        <p class="welcome__description">Find possible identifiers, review each replacement, and keep your source text on this Mac.</p>
-        <button type="button" class="welcome-start" data-open-review>De-identify text →</button>
+        <p class="welcome__description">Start a new note for a patient, or return to your encrypted patient and note library.</p>
+        <div class="welcome-actions"><button type="button" class="welcome-start" data-new-note>New note →</button><button type="button" class="welcome-start welcome-start--secondary" data-open-patients>Patients</button><button type="button" class="welcome-start welcome-start--secondary" data-open-notes>Notes</button></div>
       </div>
       <footer class="welcome__footer">
         <span>${aboutBuildLine(buildInfo)}</span>
@@ -58,28 +58,36 @@ function render(): void {
   app
     .querySelector<HTMLButtonElement>("[data-close-about]")
     ?.addEventListener("click", closeAbout);
+  const openWorkspace = (screen: "patients" | "notes") => {
+    const workspace = document.createElement("div");
+    app.querySelector(".welcome")?.replaceWith(workspace);
+    page = new TextReviewPage(
+      workspace,
+      {
+        available: isTauri(),
+        call: invoke,
+        progress: (callback) =>
+          listen<Progress>("privacy-progress", (event) =>
+            callback(event.payload),
+          ),
+      },
+      () => {
+        page = null;
+        render();
+      },
+      screen,
+    );
+    void page.mount();
+  };
   app
-    .querySelector<HTMLButtonElement>("[data-open-review]")
-    ?.addEventListener("click", () => {
-      const workspace = document.createElement("div");
-      app.querySelector(".welcome")?.replaceWith(workspace);
-      page = new TextReviewPage(
-        workspace,
-        {
-          available: isTauri(),
-          call: invoke,
-          progress: (callback) =>
-            listen<Progress>("privacy-progress", (event) =>
-              callback(event.payload),
-            ),
-        },
-        () => {
-          page = null;
-          render();
-        },
-      );
-      void page.mount();
-    });
+    .querySelector<HTMLButtonElement>("[data-open-patients]")
+    ?.addEventListener("click", () => openWorkspace("patients"));
+  app
+    .querySelector<HTMLButtonElement>("[data-new-note]")
+    ?.addEventListener("click", () => openWorkspace("patients"));
+  app
+    .querySelector<HTMLButtonElement>("[data-open-notes]")
+    ?.addEventListener("click", () => openWorkspace("notes"));
 }
 
 function aboutDialog(): HTMLDialogElement | null {

@@ -17,6 +17,18 @@ static RULES: LazyLock<Vec<(Category, Regex)>> = LazyLock::new(|| {
     ].into_iter().map(|(c,r)| (c, Regex::new(r).expect("static identifier rule"))).collect()
 });
 
+// These are deliberately narrow contextual rules. They protect a labelled NHS
+// value even when it fails checksum validation, while avoiding a broad rule for
+// arbitrary ten-digit clinical numbers. Every repeated segment has a hard bound.
+static NHS_CONTEXT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\bNHS[ \t]{1,3}(?:number|no\.?)[ \t:#-]{0,5}(?P<value>[0-9]{3}[ -]?[0-9]{3}[ -]?[0-9]{4})\b")
+        .expect("static NHS context rule")
+});
+static ADDRESS_LEAD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:flat|apartment|unit|house)[ \t]{0,3}[A-Z0-9]{1,8},[ \t]{1,3}[0-9]{1,4}[ \t]{1,3}[A-Z][A-Z'’-]{1,39}[ \t]{1,3}(?:road|street|lane|avenue|close|drive|way|court|crescent|place|row)\b")
+        .expect("static address lead rule")
+});
+
 pub fn detect_rules(text: &str) -> Vec<Evidence> {
     let mut found = Vec::new();
     for (category, regex) in RULES.iter() {
@@ -53,6 +65,35 @@ pub fn detect_rules(text: &str) -> Vec<Evidence> {
                 stage: "rules",
             });
         }
+    }
+    for captures in NHS_CONTEXT.captures_iter(text) {
+        let matched = captures.name("value").expect("matched NHS value");
+        if !found.iter().any(|evidence| {
+            evidence.category == Category::NhsNumber
+                && evidence.span.start == matched.start()
+                && evidence.span.end == matched.end()
+        }) {
+            found.push(Evidence {
+                span: Span {
+                    start: matched.start(),
+                    end: matched.end(),
+                },
+                category: Category::NhsNumber,
+                confidence: 0.9,
+                stage: "rules",
+            });
+        }
+    }
+    for matched in ADDRESS_LEAD.find_iter(text) {
+        found.push(Evidence {
+            span: Span {
+                start: matched.start(),
+                end: matched.end(),
+            },
+            category: Category::Location,
+            confidence: 0.9,
+            stage: "rules",
+        });
     }
     found
 }

@@ -1,6 +1,6 @@
 # Local Search Intent
 
-**Status:** Planned for the first release
+**Status:** Implemented for reviewed pasted-text notes
 
 ## Intent
 
@@ -14,7 +14,8 @@ ranked locally.
 
 ## Included behaviour
 
-- FTS5 indexing of reviewed-note text inside the SQLCipher database.
+- FTS5 indexing of reviewed-note text, title, and optional legacy patient reference
+  inside the SQLCipher database.
 - BM25-ranked keyword and phrase search.
 - Snippets and highlighting derived only while the database is unlocked.
 - Index updates in the same transaction as note save, edit, or deletion.
@@ -22,7 +23,7 @@ ranked locally.
 
 ## Safety invariants
 
-- Only reviewed-note text is indexed.
+- Only reviewed-note text, title, and optional legacy patient reference are indexed.
 - Queries and results remain local and are excluded from operational logs.
 - Source text, original transcripts, audio, detections, and identifier mappings
   are not searchable.

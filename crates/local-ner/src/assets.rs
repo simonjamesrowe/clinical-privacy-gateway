@@ -128,6 +128,16 @@ pub fn cleanup(root: &Path) {
     }
 }
 
+/// Removes only the pinned model directory managed by this adapter.
+pub fn remove(root: &Path) -> PrivacyResult<()> {
+    let directory = directory(root);
+    if directory.exists() {
+        fs::remove_dir_all(&directory)
+            .map_err(|_| "Model files could not be removed. Close any model activity and retry.")?;
+    }
+    Ok(())
+}
+
 pub fn install(root: &Path, cancel: &AtomicBool, progress: impl Fn(u64, u64)) -> PrivacyResult<()> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -253,5 +263,18 @@ mod tests {
             ),
             Err("Operation cancelled.")
         );
+    }
+
+    #[test]
+    fn removes_only_the_pinned_model_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let model = directory(root.path());
+        fs::create_dir_all(&model).unwrap();
+        fs::write(model.join("model.onnx"), b"fixture").unwrap();
+        let unrelated = root.path().join("unrelated");
+        fs::create_dir_all(&unrelated).unwrap();
+        remove(root.path()).unwrap();
+        assert!(!model.exists());
+        assert!(unrelated.exists());
     }
 }

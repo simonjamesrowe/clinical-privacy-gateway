@@ -1,6 +1,6 @@
 # Encrypted Note Library Intent
 
-**Status:** Planned for the first release
+**Status:** Partially implemented for pasted-text review
 
 ## Intent
 
@@ -9,24 +9,27 @@ surface area of identifiable source material.
 
 ## User outcome
 
-The clinician can save, reopen, inspect, and delete reviewed notes, and can check
-recent transcriptions against their encrypted source audio.
+The clinician can save, search, reopen, inspect, copy, and delete reviewed notes.
+Transcription/audio support remains planned.
 
 ## Included behaviour
 
-- One SQLCipher database containing reviewed notes, provenance, temporary audio,
-  original transcript alignment, retention metadata, and search indexes.
+- One SQLCipher database containing patients, reviewed notes, provenance,
+  encrypted original text, reviewed text, review decisions, global and
+  patient-specific identifier mappings, and search indexes.
+  Audio and transcript retention remain planned.
 - A random database key held in device-only Keychain storage.
 - Reviewed notes retained until explicit deletion.
-- Source audio and the original aligned transcript automatically removed 30 days
-  after note creation.
-- Clear display of the audio expiry date and manual early deletion.
-- Transactional note save, expiry, and complete deletion.
-- Startup recovery for interrupted cleanup without restoring expired content.
+- Transactional note save, search-index update, and complete deletion.
+- Patient deletion removes that patient's notes, their search entries, and
+  patient-specific mappings in the same transaction.
+- Patient and note deletion each require a modal confirmation that asks, “Are
+  you really sure you want to delete this?”
 
 ## Safety invariants
 
-- Pasted source text is never persisted.
+- Saving a note persists its original text, reviewed text, and review decisions
+  together in the SQLCipher database; none are indexed except reviewed text.
 - Expired or deleted source content is removed from primary, temporary, and
   derived storage.
 - An unreadable or wrongly keyed database is preserved for diagnosis rather than
@@ -38,11 +41,11 @@ recent transcriptions against their encrypted source audio.
 ## Success criteria
 
 - Database pages and FTS data are not readable without the stored key.
-- Restarting the application preserves reviewed notes and pending expiry dates.
-- Advancing past 30 days removes audio, original transcript, and alignment while
-  retaining the reviewed note.
+- Restarting the application preserves reviewed notes.
 - Explicit note deletion removes its record, provenance, source material, and
   search entry in an idempotent operation.
+- Explicit patient deletion removes the patient, all their notes, their search
+  entries, and patient-specific mappings without leaving derived data behind.
 
 ## Non-goals
 
