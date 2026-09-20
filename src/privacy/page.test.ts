@@ -262,6 +262,39 @@ describe("text review", () => {
       end: 11,
     });
   });
+  it("preserves confirmation while initial model status arrives and cleans it up on disposal", async () => {
+    let resolve!: (value: unknown) => void;
+    call.mockImplementationOnce(
+      () =>
+        new Promise((yes) => {
+          resolve = yes;
+        }),
+    );
+    const mounting = mount();
+    await flush();
+    input(source);
+    await click("[data-discard]");
+    const dialog = root.querySelector("dialog");
+    resolve({
+      installed: true,
+      name: "BERT",
+      bytes: 110_000_000,
+      revision: "fixture",
+    });
+    await mounting;
+    expect(root.querySelector("dialog")).toBe(dialog);
+    expect(dialog?.open).toBe(true);
+    await click("[data-stay]");
+    expect(button("[data-detect]").disabled).toBe(false);
+    expect(root.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
+      source,
+    );
+    await click("[data-discard]");
+    page.dispose();
+    await flush();
+    expect(root.textContent).toBe("");
+    expect(call).not.toHaveBeenCalledWith("discard_session", undefined);
+  });
   it("clears displayed content and subscriptions on disposal and ignores late results", async () => {
     await mount();
     let resolve!: (value: ReviewSession) => void;

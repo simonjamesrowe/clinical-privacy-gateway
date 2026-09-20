@@ -31,6 +31,7 @@ export class TextReviewPage {
   private operation = 0;
   private disposed = false;
   private unsubscribe?: () => void;
+  private dismissDiscard?: () => void;
   private selection: { start: number; end: number } | null = null;
   private message = "";
   private error = "";
@@ -66,6 +67,7 @@ export class TextReviewPage {
 
   dispose(): void {
     this.disposed = true;
+    this.dismissDiscard?.();
     this.unsubscribe?.();
     this.source = "";
     this.session = null;
@@ -80,11 +82,13 @@ export class TextReviewPage {
     this.el(selector).addEventListener("click", action);
   }
   private updateStatus(): void {
+    if (this.disposed) return;
     this.el<HTMLElement>("[data-status]").textContent = this.message;
     this.el<HTMLElement>("[data-error]").textContent = this.error;
   }
   private render(): void {
-    if (this.disposed) return;
+    // A model-status reply must not replace an open confirmation dialog.
+    if (this.disposed || this.dismissDiscard) return;
     this.root.innerHTML = `
       <section class="review-page" aria-labelledby="review-title">
         <nav class="review-nav" aria-label="Application"><button type="button" data-home>← Home</button><span>Clinician’s Veil</span><span class="local-indicator">On this Mac</span></nav>
@@ -449,7 +453,7 @@ export class TextReviewPage {
     }
   }
   private async leave(home: boolean): Promise<void> {
-    if (this.busy) return;
+    if (this.busy || this.disposed || this.dismissDiscard) return;
     if ((this.source || this.session) && !(await this.confirmDiscard())) return;
     this.busy = true;
     this.render();
@@ -484,8 +488,11 @@ export class TextReviewPage {
       const finish = (value: boolean) => {
         dialog.close();
         dialog.remove();
+        this.dismissDiscard = undefined;
         resolve(value);
+        if (!value) this.render();
       };
+      this.dismissDiscard = () => finish(false);
       dialog.addEventListener("cancel", (event) => {
         event.preventDefault();
         finish(false);
