@@ -4,15 +4,30 @@ A local-first macOS tool for capturing clinical notes, detecting identifying
 information, reviewing privacy transformations, and searching an encrypted
 personal note library.
 
-This repository contains the initial macOS shell and the architecture for a
-personal, single-user tool. It is not a clinical product or an autonomous
-anonymisation system.
+This repository contains the macOS app, an in-memory text-review workspace, and
+the architecture for a personal, single-user tool. It is not a clinical product
+or an autonomous anonymisation system.
 
-## Current app shell
+## Current app
 
-The first runnable build is **Clinician’s Veil**: a local-only welcome screen
-with native macOS menus and build information. It deliberately has no clinical
-material entry, microphone, persistence, model, or network capability yet.
+**Clinician’s Veil** opens with a welcome screen, native macOS menus and build
+information. Choose **De-identify text** to type or paste source text (up to
+20,000 characters). Download the English BERT NER model once (~110 MB), then
+process text offline using local rules and the embedded model.
+
+Review highlighted proposals alongside the source. Accept, edit a placeholder,
+keep or remove each group; separate same-name occurrences when they refer to
+different people. Select missed phrases to add manual replacements. Complete the
+final local check before using **Copy reviewed text**. Discard or return Home to
+clear the session. Nothing is saved apart from the downloaded model files.
+
+The local Llama contextual sweep and cleanup are not included yet. Initials,
+partial organisations, file paths and indirect identifying combinations require
+manual attention. No detections is not proof of de-identification. See the
+[feature scope](specs/text-review/intent.md) and
+[synthetic evaluation](docs/evaluation/text-review.md) before use. Clipboard
+managers may retain copied text. Use synthetic material until the required
+organisational and target-device validation has been completed.
 
 ### Run locally
 
@@ -34,15 +49,29 @@ build on GitHub-hosted macOS. The `Quality gate` check is required before merge
 to `main`.
 
 Every successful push to `main` updates the **Latest main build** prerelease and
-replaces its unsigned arm64 DMG. This is the stable download point for trying the
-newest merged build. Versioned releases remain available: update the package
-version and push a matching `vX.Y.Z` tag to create a permanent GitHub Release.
+replaces its arm64 DMG containing an ad-hoc-signed app. This is the stable
+download point for trying the newest merged build. Versioned releases remain
+available: update the package version and push a matching `vX.Y.Z` tag to create
+a permanent GitHub Release.
 Both flows upload the DMG as a workflow artifact and a GitHub Release asset.
 
-The DMG is intentionally unsigned and not notarised. On first use macOS may
-block it; inspect the downloaded release, then use Finder’s **Open** action or
-System Settings’ explicit **Open Anyway** control to launch it. Do not bypass
-Gatekeeper for an artifact whose source or checksum you cannot verify.
+The app bundle is ad-hoc signed before packaging, and both workflows mount the
+finished DMG read-only and verify its integrity and the enclosed app's signature
+before uploading it. A linker-signed executable alone is not a valid signature
+for the completed app bundle and can produce macOS's misleading “damaged” error.
+
+Ad-hoc signing does not establish an Apple-verified developer identity. The DMG
+is not notarised, so macOS may still block first launch. After verifying the
+release's source and checksum, follow Apple's [Open Anyway instructions](https://support.apple.com/en-gb/102445)
+in System Settings → Privacy & Security. Do not disable Gatekeeper globally.
+Developer ID signing and notarisation are needed for a normal verified download
+without that manual exception; they require Apple Developer credentials in CI.
+
+To run the same packaging check locally after a release build:
+
+```sh
+bash scripts/verify-macos-dmg.sh target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+```
 
 ## First release
 

@@ -1,0 +1,196 @@
+[
+  {
+    "id": "progress-01",
+    "text": "Alex Morgan attended a review in Bristol on 12 March 2026. Alex Morgan reported improved sleep and no change to the prescribed 10 mg dose.",
+    "entities": [
+      { "text": "Alex Morgan", "category": "PERSON" },
+      { "text": "Bristol", "category": "LOCATION" },
+      { "text": "12 March 2026", "category": "DATE" }
+    ]
+  },
+  {
+    "id": "family-02",
+    "text": "Sarah Bennett attended with her mother, Helen Bennett. Both live in Leeds.",
+    "entities": [
+      { "text": "Sarah Bennett", "category": "PERSON" },
+      { "text": "Helen Bennett", "category": "PERSON" },
+      { "text": "Leeds", "category": "LOCATION" }
+    ]
+  },
+  {
+    "id": "paediatric-03",
+    "text": "Oliver Reed attends Willowbrook Primary School. His father, James Reed, described improved attendance.",
+    "entities": [
+      { "text": "Oliver Reed", "category": "PERSON" },
+      { "text": "Willowbrook Primary School", "category": "ORGANISATION" },
+      { "text": "James Reed", "category": "PERSON" }
+    ]
+  },
+  {
+    "id": "care-04",
+    "text": "Priya Shah was reviewed at Meadow House Care Home in York. Continue 5 mg daily.",
+    "entities": [
+      { "text": "Priya Shah", "category": "PERSON" },
+      { "text": "Meadow House Care Home", "category": "ORGANISATION" },
+      { "text": "York", "category": "LOCATION" }
+    ]
+  },
+  {
+    "id": "contact-05",
+    "text": "Contact maya.chen@example.invalid or 07700 900123. No change to treatment.",
+    "entities": [
+      { "text": "maya.chen@example.invalid", "category": "EMAIL" },
+      { "text": "07700 900123", "category": "PHONE" }
+    ]
+  },
+  {
+    "id": "register-06",
+    "text": "NHS number: 943 476 5919. NI number: AB123456C. Review arranged.",
+    "entities": [
+      { "text": "943 476 5919", "category": "NHS_NUMBER" },
+      { "text": "AB123456C", "category": "NI_NUMBER" }
+    ]
+  },
+  {
+    "id": "address-07",
+    "text": "Postal district SW1A 1AA. Telephone +44 7700 900456. Please call after lunch.",
+    "entities": [
+      { "text": "SW1A 1AA", "category": "POSTCODE" },
+      { "text": "+44 7700 900456", "category": "PHONE" }
+    ]
+  },
+  {
+    "id": "referral-08",
+    "text": "Patient ID: SYN-2048. Record number: DEMO/1024. Appointment on 2026-04-15.",
+    "entities": [
+      { "text": "SYN-2048", "category": "CASE_REFERENCE" },
+      { "text": "DEMO/1024", "category": "CASE_REFERENCE" },
+      { "text": "2026-04-15", "category": "DATE" }
+    ]
+  },
+  {
+    "id": "email-09",
+    "text": "From: ellis@example.invalid. Sent: 14/03/2026. To: jordan@example.invalid. Subject: appointment.",
+    "entities": [
+      { "text": "ellis@example.invalid", "category": "EMAIL" },
+      { "text": "14/03/2026", "category": "DATE" },
+      { "text": "jordan@example.invalid", "category": "EMAIL" }
+    ]
+  },
+  {
+    "id": "link-10",
+    "text": "The appointment is listed at https://example.invalid/client/demo. Please confirm.",
+    "entities": [
+      { "text": "https://example.invalid/client/demo", "category": "URL" }
+    ]
+  },
+  {
+    "id": "initials-11",
+    "text": "A. B. reported fewer symptoms. AB asked for a follow-up next week.",
+    "entities": [
+      { "text": "A. B.", "category": "PERSON" },
+      { "text": "AB", "category": "PERSON" }
+    ]
+  },
+  {
+    "id": "nickname-12",
+    "text": "The client goes by Blue and their partner by Pip. Blue reports improved sleep.",
+    "entities": [
+      { "text": "Blue", "category": "PERSON" },
+      { "text": "Pip", "category": "PERSON" }
+    ]
+  },
+  {
+    "id": "unicode-13",
+    "text": "🩺 Éva Kovács met José Silva in Paris. No new symptoms.",
+    "entities": [
+      { "text": "Éva Kovács", "category": "PERSON" },
+      { "text": "José Silva", "category": "PERSON" },
+      { "text": "Paris", "category": "LOCATION" }
+    ]
+  },
+  {
+    "id": "names-14",
+    "text": "May Green spoke to Will Brown about travel to Reading.",
+    "entities": [
+      { "text": "May Green", "category": "PERSON" },
+      { "text": "Will Brown", "category": "PERSON" },
+      { "text": "Reading", "category": "LOCATION" }
+    ]
+  },
+  {
+    "id": "shared-15",
+    "text": "Sam Taylor attended with another person named Sam Taylor. They are not the same person.",
+    "entities": [{ "text": "Sam Taylor", "category": "PERSON" }]
+  },
+  {
+    "id": "safeguarding-16",
+    "text": "Amira Khan spoke to social worker Daniel Price at Oakbridge Council. A review is due on 2 June 2026.",
+    "entities": [
+      { "text": "Amira Khan", "category": "PERSON" },
+      { "text": "Daniel Price", "category": "PERSON" },
+      { "text": "Oakbridge Council", "category": "ORGANISATION" },
+      { "text": "2 June 2026", "category": "DATE" }
+    ]
+  },
+  {
+    "id": "clinical-17",
+    "text": "No suicidal ideation. Continue sertraline 50 mg daily. Blood pressure 120/80. Follow up in 2 weeks.",
+    "entities": []
+  },
+  {
+    "id": "clinical-18",
+    "text": "Age 47. Denies chest pain. Oxygen saturation 98%. Reports 6 hours of sleep. No medication changes.",
+    "entities": []
+  },
+  {
+    "id": "path-19",
+    "text": "The report is stored at /Users/demo/Letters/synthetic-report.txt and was discussed today.",
+    "entities": [
+      {
+        "text": "/Users/demo/Letters/synthetic-report.txt",
+        "category": "MANUAL"
+      }
+    ]
+  },
+  {
+    "id": "misspelling-20",
+    "text": "Jhn Smyth attended with his sister Mry Smyth. Both requested written information.",
+    "entities": [
+      { "text": "Jhn Smyth", "category": "PERSON" },
+      { "text": "Mry Smyth", "category": "PERSON" }
+    ]
+  },
+  {
+    "id": "indirect-21",
+    "text": "A 97-year-old retired lighthouse keeper with a rare inherited condition lives in a village of 40 people.",
+    "entities": [
+      { "text": "97-year-old retired lighthouse keeper", "category": "MANUAL" },
+      { "text": "a village of 40 people", "category": "MANUAL" }
+    ]
+  },
+  {
+    "id": "report-22",
+    "text": "Report by Dr Nadia Patel for Northbridge Clinic, London. Case reference: DEMO-555. Dated 1 September 2026.",
+    "entities": [
+      { "text": "Nadia Patel", "category": "PERSON" },
+      { "text": "Northbridge Clinic", "category": "ORGANISATION" },
+      { "text": "London", "category": "LOCATION" },
+      { "text": "DEMO-555", "category": "CASE_REFERENCE" },
+      { "text": "1 September 2026", "category": "DATE" }
+    ]
+  },
+  {
+    "id": "quoted-23",
+    "text": "Previously: rory@example.invalid said call 07700 900789. Reply: rory@example.invalid confirmed the appointment.",
+    "entities": [
+      { "text": "rory@example.invalid", "category": "EMAIL" },
+      { "text": "07700 900789", "category": "PHONE" }
+    ]
+  },
+  {
+    "id": "no-identifiers-24",
+    "text": "The client reports a stable mood. Appetite has improved. No new concerns were raised. Continue the agreed plan.",
+    "entities": []
+  }
+]

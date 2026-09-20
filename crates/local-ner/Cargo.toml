@@ -1,0 +1,18 @@
+[package]
+name = "clinicians-veil-ner"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version = "1.88"
+
+[dependencies]
+clinicians-veil-core = { path = "../clinicians-veil-core" }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-native", "api-24"] }
+tokenizers = { version = "0.23.2", default-features = false, features = ["onig"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1", features = ["rt", "time", "net"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"

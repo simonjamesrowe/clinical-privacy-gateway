@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/clinicians-veil-core", "src-tauri"]
+members = ["crates/clinicians-veil-core", "crates/local-ner", "src-tauri"]
 resolver = "2"
 
 [workspace.package]

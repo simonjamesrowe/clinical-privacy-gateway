@@ -2,6 +2,9 @@
 
 **Status:** Planned for the first release
 
+The [in-memory text-review slice](../text-review/intent.md) implements the
+text-only review/rescan/copy flow. Audio, persistence and file export remain planned.
+
 ## Intent
 
 Make human review the explicit control point between automated proposals and a

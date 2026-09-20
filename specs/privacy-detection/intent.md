@@ -2,6 +2,9 @@
 
 **Status:** Planned for the first release
 
+The rules + NER subset is implemented by the [in-memory text-review slice](../text-review/intent.md).
+The contextual sweep and full first-release coverage below remain planned.
+
 ## Intent
 
 Find direct identifiers and combinations of indirect details locally, explain

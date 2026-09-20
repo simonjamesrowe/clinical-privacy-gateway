@@ -85,14 +85,14 @@ These are stable domain shapes, not committed Rust or IPC schemas:
 | Core | Plain Rust library behind adapters | Decided |
 | Persistence | `rusqlite`, bundled SQLCipher, FTS5 | Decided; combined build spike required |
 | Speech | SpeechAnalyzer first; benchmark against WhisperKit | Benchmark gate |
-| Detection | Embedded Rust rules and token-classification model; no Python sidecar | Decided; model selection open |
+| Detection | Embedded Rust rules plus pinned BERT NER/ONNX baseline for in-memory text review; no Python sidecar | Implemented baseline; target-hardware/clinical validation pending |
 | Local LLM | Llama 3.2 1B, sequentially loaded, for privacy sweep and cleanup | Benchmark gate |
 | Search | FTS5/BM25 in the first release | Decided |
 | Semantic search | `sqlite-vec` integration seam only | Deferred |
 | Audio retention | Encrypted source audio and aligned transcript for 30 days | Decided |
 | External AI | Designed now, unavailable pending use case and governance approval | Gated |
 | Frontend framework | Vite/TypeScript for the initial shell; command boundary remains enforced | Decided |
-| Distribution | GitHub Actions validates PRs; `main` updates a rolling unsigned arm64 DMG prerelease, while version tags create permanent releases | Decided |
+| Distribution | GitHub Actions validates PRs and packaged signatures; `main` updates a rolling arm64 DMG prerelease containing an ad-hoc-signed app, while version tags create permanent releases | Decided |
 
 ## Focused architecture
 

@@ -6,7 +6,7 @@ authors = ["Simon Rowe"]
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-rust-version = "1.77"
+rust-version = "1.88"
 
 [lib]
 name = "clinicians_veil_lib"
@@ -17,5 +17,7 @@ tauri-build = { version = "~2.6.0", features = [] }
 
 [dependencies]
 clinicians-veil-core = { path = "../crates/clinicians-veil-core" }
+clinicians-veil-ner = { path = "../crates/local-ner" }
+arboard = { version = "3", default-features = false }
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "~2.11.0", features = [] }

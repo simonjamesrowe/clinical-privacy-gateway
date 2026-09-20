@@ -25,6 +25,35 @@ Source audio and final transcript segments share timestamps for later checking.
 
 ## Detection stages
 
+### Initial text-only slice
+
+The [in-memory text review](../../specs/text-review/intent.md) currently implements
+rules → embedded NER → placeholder proposals → review → final rules/NER rescan.
+It does not yet implement the contextual Llama sweep, cleanup, transcription or
+storage shown in the full pipeline above.
+
+The evaluated baseline is the quantised ONNX export of `dslim/bert-base-NER` from
+`onnx-community/bert-base-NER-ONNX`, pinned at
+`9faa2f4a2d59b396888b318f596ff719cc893f1e`, running through `ort` 2.0.0-rc.12
+(ONNX Runtime 1.24.2). This fills the previously open token-classifier slot; it
+does not replace Llama 3.2 1B. English news-domain training is a limitation, not
+evidence of clinical coverage. See the [evaluation and known gaps](../evaluation/text-review.md).
+
+Encode the complete bounded source before explicitly constructing overlapping
+windows (510 content tokens, 64-token overlap, plus BERT special tokens).
+Tokenizer-level early truncation must not silently omit later text. Partial
+subword detections expand to word boundaries before overlap merging.
+
+All detections and provenance are session-local in this slice. Exact
+phrase/category grouping is explicit and splittable, with no fuzzy alias or
+relationship inference. Placeholder labels are constrained to bracketed ASCII
+labels; free-form generated prose is not accepted. Final rescans mask generated
+placeholder spans using length-preserving spaces and map new detections back
+to source positions. Model handles are dropped after every run, including errors
+and cancellation; there is no resident inference service.
+
+### Full first-release pipeline
+
 1. **Deterministic rules** detect structured identifiers, including validated
    NHS numbers, postcodes, NI numbers, phone numbers, email addresses, URLs,
    dates, IDs, case references, and file paths. Checksums and contextual

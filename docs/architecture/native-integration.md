@@ -46,6 +46,17 @@ use after provisioning, and expose load/unload boundaries to the core.
 No Python runtime, Docker service, localhost HTTP server, or model daemon is
 part of the application architecture.
 
+The first text-review adapter is `crates/local-ner`. It statically links ONNX
+Runtime; the DMG must not depend on a developer-installed runtime library.
+Only its explicit asset installer has an HTTP client. It uses fixed pinned URLs,
+validates every parsed redirect origin, bounds download sizes/timeouts, verifies
+hashes before installation and removes its known partial files after failure or
+on startup. The source-text command cannot accept a URL or model path.
+
+The Tauri adapter owns one in-memory review and one cancellable operation. Copy
+uses the backend-owned reviewed revision. Input and model errors are mapped to
+content-free messages; progress events carry only stage/count/operation metadata.
+
 ## Development and packaging
 
 - Use Safari Web Inspector for WKWebView debugging; enable development tools in
@@ -56,8 +67,13 @@ part of the application architecture.
   scaffolded; keep platform-specific configuration documented.
 - Build locally with ad-hoc signing for this single-machine tool. GitHub Actions
   validates pull requests and, after every successful push to `main`, updates a
-  rolling `main-latest` prerelease with an unsigned arm64 DMG. Matching `vX.Y.Z`
-  tags create permanent versioned releases. The GitHub Release and workflow
-  artifact are the distribution point for the target M2 Mac. The user must
+  rolling `main-latest` prerelease with an arm64 DMG containing an ad-hoc-signed
+  app. Tauri signs the completed bundle using `signingIdentity: "-"`, not just
+  the executable's automatic linker signature. Both PR and release workflows
+  mount the finished DMG read-only and verify its checksum and the enclosed
+  bundle's signature before uploading. This checks integrity, not Apple trust;
+  Gatekeeper acceptance requires Developer ID signing and notarisation.
+  Matching `vX.Y.Z` tags create permanent versioned releases. The GitHub Release
+  and workflow artifact are the distribution point for the target M2 Mac. The user must
   explicitly complete macOS’s Gatekeeper flow on first launch; Developer ID
   signing and notarisation remain deferred until broader distribution is required.

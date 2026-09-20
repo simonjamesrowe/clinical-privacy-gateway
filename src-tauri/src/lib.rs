@@ -1,7 +1,9 @@
 use clinicians_veil_core::{AppBuildInfo, BuildChannel};
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
+
+mod privacy;
 
 const ABOUT_MENU_ID: &str = "about";
 
@@ -68,17 +70,51 @@ fn application_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
 
     let close = PredefinedMenuItem::close_window(app, None)?;
     let file_submenu = Submenu::with_items(app, "File", true, &[&close])?;
+    let edit_submenu = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
 
-    Menu::with_items(app, &[&app_submenu, &file_submenu])
+    Menu::with_items(app, &[&app_submenu, &file_submenu, &edit_submenu])
 }
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![build_info])
+        .invoke_handler(tauri::generate_handler![
+            build_info,
+            privacy::model_status,
+            privacy::install_model,
+            privacy::cancel_operation,
+            privacy::discard_session,
+            privacy::detect_text,
+            privacy::review_decision,
+            privacy::split_detection,
+            privacy::add_manual_detection,
+            privacy::rescan_text,
+            privacy::copy_reviewed_text
+        ])
         .setup(|app| {
+            app.manage(privacy::PrivacyState::new(
+                app.path().app_data_dir()?.join("models"),
+            ));
             let menu = application_menu(app)?;
             app.set_menu(menu)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let _ = window.state::<privacy::PrivacyState>().discard();
+            }
         })
         .on_menu_event(|app, event| {
             if event.id().as_ref() == ABOUT_MENU_ID {
