@@ -40,8 +40,11 @@ web framework.
 - Detect direct and indirect identifiers using independent local passes.
 - Apply consistent pseudonymisation, generalisation, and constrained cleanup.
 - Require clinician review before saving or copying transformed text.
-- Save reviewed notes, with temporary source audio, in one encrypted database.
+- Save original and reviewed pasted-text notes with their review decisions in
+  one encrypted database; temporary source audio remains planned.
 - Search reviewed notes with encrypted FTS5 keyword search.
+- Reuse clinician-approved global or patient-specific identifier mappings as
+  accepted exact-match local defaults, with an explicit per-note review option.
 - Specify external AI egress, but keep it unavailable until a concrete use case
   and information-governance approval exist.
 
@@ -51,15 +54,15 @@ access, autonomous clinical decisions, and cloud processing are later concerns.
 
 ## Component responsibilities
 
-| Component | Responsibility |
-| --- | --- |
-| Web frontend | Capture interaction, render diffs and detections, collect explicit decisions |
-| Tauri adapter | Narrow commands, capability enforcement, event/stream translation |
-| Rust core | Sessions, detection orchestration, transformations, review state, retention and egress policy |
-| Swift adapter | SpeechAnalyzer/SpeechDetector invocation and timestamped transcript results only |
-| Model adapters | Embedded NER, local contextual privacy sweep, and constrained cleanup |
-| SQLite adapter | SQLCipher connections, migrations, note/audio persistence, FTS5 |
-| Egress adapter | Disabled-by-default submission of one approved payload to one configured destination |
+| Component      | Responsibility                                                                                |
+| -------------- | --------------------------------------------------------------------------------------------- |
+| Web frontend   | Capture interaction, render diffs and detections, collect explicit decisions                  |
+| Tauri adapter  | Narrow commands, capability enforcement, event/stream translation                             |
+| Rust core      | Sessions, detection orchestration, transformations, review state, retention and egress policy |
+| Swift adapter  | SpeechAnalyzer/SpeechDetector invocation and timestamped transcript results only              |
+| Model adapters | Embedded NER, local contextual privacy sweep, and constrained cleanup                         |
+| SQLite adapter | SQLCipher connections, migrations, note/audio persistence, FTS5                               |
+| Egress adapter | Disabled-by-default submission of one approved payload to one configured destination          |
 
 ## Conceptual contracts
 
@@ -72,27 +75,28 @@ These are stable domain shapes, not committed Rust or IPC schemas:
   and review state.
 - A **review decision** is accept, edit, keep, or remove. It is distinct from
   saving the note and from egress approval.
-- A **reviewed note** contains the clinician-approved text, encrypted detection
-  provenance, timestamps, and optional temporary audio alignment.
+- A **reviewed note** contains the original text, clinician-approved text,
+  encrypted review decisions, timestamps, and optional temporary audio
+  alignment.
 - An **egress approval** binds the exact reviewed revision and payload to one
   destination, purpose, and attempted submission. It cannot be reused.
 
 ## Decision index
 
-| Area | Decision | Status |
-| --- | --- | --- |
-| Desktop shell | Tauri 2.11 line with WKWebView; initial Clinician’s Veil welcome shell | Decided |
-| Core | Plain Rust library behind adapters | Decided |
-| Persistence | `rusqlite`, bundled SQLCipher, FTS5 | Decided; combined build spike required |
-| Speech | SpeechAnalyzer first; benchmark against WhisperKit | Benchmark gate |
-| Detection | Embedded Rust rules plus pinned BERT NER/ONNX baseline for in-memory text review; no Python sidecar | Implemented baseline; target-hardware/clinical validation pending |
-| Local LLM | Llama 3.2 1B, sequentially loaded, for privacy sweep and cleanup | Benchmark gate |
-| Search | FTS5/BM25 in the first release | Decided |
-| Semantic search | `sqlite-vec` integration seam only | Deferred |
-| Audio retention | Encrypted source audio and aligned transcript for 30 days | Decided |
-| External AI | Designed now, unavailable pending use case and governance approval | Gated |
-| Frontend framework | Vite/TypeScript for the initial shell; command boundary remains enforced | Decided |
-| Distribution | GitHub Actions validates PRs and packaged signatures; `main` updates a rolling arm64 DMG prerelease containing an ad-hoc-signed app, while version tags create permanent releases | Decided |
+| Area               | Decision                                                                                                                                                                          | Status                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Desktop shell      | Tauri 2.11 line with WKWebView; initial Clinician’s Veil welcome shell                                                                                                            | Decided                                                             |
+| Core               | Plain Rust library behind adapters                                                                                                                                                | Decided                                                             |
+| Persistence        | `rusqlite`, bundled SQLCipher, FTS5                                                                                                                                               | Implemented for reviewed pasted-text notes; audio retention pending |
+| Speech             | SpeechAnalyzer first; benchmark against WhisperKit                                                                                                                                | Benchmark gate                                                      |
+| Detection          | Embedded Rust rules plus pinned BERT NER/ONNX baseline for in-memory text review; no Python sidecar                                                                               | Implemented baseline; target-hardware/clinical validation pending   |
+| Local LLM          | Llama 3.2 1B, sequentially loaded, for privacy sweep and cleanup                                                                                                                  | Benchmark gate                                                      |
+| Search             | FTS5/BM25 in the first release                                                                                                                                                    | Implemented for reviewed pasted-text notes                          |
+| Semantic search    | `sqlite-vec` integration seam only                                                                                                                                                | Deferred                                                            |
+| Audio retention    | Encrypted source audio and aligned transcript for 30 days                                                                                                                         | Decided                                                             |
+| External AI        | Designed now, unavailable pending use case and governance approval                                                                                                                | Gated                                                               |
+| Frontend framework | Vite/TypeScript for the initial shell; command boundary remains enforced                                                                                                          | Decided                                                             |
+| Distribution       | GitHub Actions validates PRs and packaged signatures; `main` updates a rolling arm64 DMG prerelease containing an ad-hoc-signed app, while version tags create permanent releases | Decided                                                             |
 
 ## Focused architecture
 

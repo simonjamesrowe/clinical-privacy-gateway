@@ -4,6 +4,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
 
 mod privacy;
+mod storage;
 
 const ABOUT_MENU_ID: &str = "about";
 
@@ -94,6 +95,8 @@ pub fn run() {
             build_info,
             privacy::model_status,
             privacy::install_model,
+            privacy::remove_model,
+            privacy::replace_model,
             privacy::cancel_operation,
             privacy::discard_session,
             privacy::detect_text,
@@ -101,14 +104,39 @@ pub fn run() {
             privacy::split_detection,
             privacy::add_manual_detection,
             privacy::rescan_text,
-            privacy::copy_reviewed_text
+            privacy::copy_reviewed_text,
+            privacy::save_reviewed_note,
+            privacy::search_notes,
+            privacy::note_detail,
+            privacy::open_saved_note,
+            privacy::delete_note,
+            privacy::delete_patient,
+            privacy::copy_note,
+            privacy::list_mappings,
+            privacy::list_patient_mappings,
+            privacy::list_patients,
+            privacy::create_patient,
+            privacy::create_mapping,
+            privacy::update_mapping,
+            privacy::delete_mapping,
+            privacy::create_patient_mapping,
+            privacy::update_patient_mapping,
+            privacy::delete_patient_mapping,
+            privacy::save_mapping_from_review
         ])
         .setup(|app| {
             app.manage(privacy::PrivacyState::new(
                 app.path().app_data_dir()?.join("models"),
+                app.path().app_data_dir()?.join("library"),
             ));
             let menu = application_menu(app)?;
             app.set_menu(menu)?;
+            // Maximise only after AppKit has created the window. Combining the
+            // config-time centre and maximise requests can leave a large window
+            // offset from the available desktop area on macOS.
+            app.get_webview_window("main")
+                .expect("main window is defined in tauri.conf.json")
+                .maximize()?;
             Ok(())
         })
         .on_window_event(|window, event| {

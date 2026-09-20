@@ -44,9 +44,14 @@ windows (510 content tokens, 64-token overlap, plus BERT special tokens).
 Tokenizer-level early truncation must not silently omit later text. Partial
 subword detections expand to word boundaries before overlap merging.
 
-All detections and provenance are session-local in this slice. Exact
-phrase/category grouping is explicit and splittable, with no fuzzy alias or
-relationship inference. Placeholder labels are constrained to bracketed ASCII
+Exact phrase/category grouping is explicit and splittable, with no fuzzy alias
+or relationship inference. A clinician may explicitly save an accepted or edited
+exact phrase/category mapping for all patients or the selected patient. Both
+case-insensitively detect later whole-phrase occurrences, with the patient
+mapping taking precedence. A saved mapping is accepted automatically on a new
+note, unless the per-note **Review saved mappings** control leaves library
+matches pending.
+Placeholder labels are constrained to bracketed ASCII
 labels; free-form generated prose is not accepted. Final rescans mask generated
 placeholder spans using length-preserving spaces and map new detections back
 to source positions. Model handles are dropped after every run, including errors
@@ -55,7 +60,8 @@ and cancellation; there is no resident inference service.
 ### Full first-release pipeline
 
 1. **Deterministic rules** detect structured identifiers, including validated
-   NHS numbers, postcodes, NI numbers, phone numbers, email addresses, URLs,
+   NHS numbers, labelled NHS-shaped values, address leads, postcodes, NI
+   numbers, phone numbers, email addresses, URLs,
    dates, IDs, case references, and file paths. Checksums and contextual
    invalidation take precedence over loose regex matching.
 2. **Embedded NER** detects people, places, organisations, facilities, and

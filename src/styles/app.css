@@ -28,6 +28,18 @@ button {
   cursor: pointer;
 }
 
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.welcome-start--secondary {
+  border-color: #9ab1aa;
+  background: transparent;
+  color: #155c5c;
+}
+
 .welcome {
   --ink: #122426;
   --paper: #dfe7e2;

@@ -4,22 +4,29 @@ A local-first macOS tool for capturing clinical notes, detecting identifying
 information, reviewing privacy transformations, and searching an encrypted
 personal note library.
 
-This repository contains the macOS app, an in-memory text-review workspace, and
+This repository contains the macOS app, an encrypted reviewed-note library, and
 the architecture for a personal, single-user tool. It is not a clinical product
 or an autonomous anonymisation system.
 
 ## Current app
 
 **Clinician’s Veil** opens with a welcome screen, native macOS menus and build
-information. Choose **De-identify text** to type or paste source text (up to
-20,000 characters). Download the English BERT NER model once (~110 MB), then
-process text offline using local rules and the embedded model.
+information. Start in **Patients**: add or select a patient, then create a new
+note to type or paste source text (up to 20,000 characters). Download the
+English BERT NER model once (~110 MB), then process text offline using local
+rules and the embedded model.
 
 Review highlighted proposals alongside the source. Accept, edit a placeholder,
 keep or remove each group; separate same-name occurrences when they refer to
 different people. Select missed phrases to add manual replacements. Complete the
 final local check before using **Copy reviewed text**. Discard or return Home to
-clear the session. Nothing is saved apart from the downloaded model files.
+clear the session. After the final check, a clinician can save an immutable
+reviewed note with a title and selected patient. The original text, reviewed
+text, and review decisions stay together in the local encrypted database and a
+saved note reopens in the same review workspace. Search runs locally over
+reviewed text and the note title. Mappings can apply to all patients or only
+the selected patient; they apply automatically on a new note unless the
+clinician chooses **Review saved mappings** before analysis.
 
 The local Llama contextual sweep and cleanup are not included yet. Initials,
 partial organisations, file paths and indirect identifying combinations require

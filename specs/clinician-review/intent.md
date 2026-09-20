@@ -2,8 +2,8 @@
 
 **Status:** Planned for the first release
 
-The [in-memory text-review slice](../text-review/intent.md) implements the
-text-only review/rescan/copy flow. Audio, persistence and file export remain planned.
+The [text-review slice](../text-review/intent.md) implements text review,
+rescan, copy, and encrypted reviewed-note saving. Audio and file export remain planned.
 
 ## Intent
 
@@ -18,13 +18,17 @@ cleanup proposal without losing sight of the source wording.
 ## Included behaviour
 
 - Side-by-side source and working text with linked highlights.
-- A review list that distinguishes direct identifiers, probable identifiers,
-  indirect-risk combinations, cleanup changes, and retained details.
+- A focused review wizard that presents one unresolved item at a time above the
+  source and working text, with a progress bar, previous/next controls, and a
+  collapsed resolved history.
 - Item-level decisions: accept, edit, keep, or remove.
 - Explanations and contributing detection stages for every flagged item.
 - Audio replay for transcribed source while the 30-day source retention exists.
 - A final local rescan and structured residual-risk summary.
 - Copy of reviewed text and optional plain `.txt` or `.md` export.
+- Save a reviewed note only after a successful final check, with a required
+  title and selected patient. The original text, reviewed text, and review
+  decisions reopen in the same editable review workspace.
 
 Saving a reviewed note and approving external egress are separate actions.
 
@@ -36,12 +40,15 @@ Saving a reviewed note and approving external egress are separate actions.
   anonymity score.
 - Editing after a final scan invalidates that scan until it is run again.
 - Egress remains unavailable from an incomplete or stale review.
+- A saved mapping applies only to its exact phrase/category match. It is
+  accepted by default, while **Review saved mappings** keeps those matches in
+  the review queue for the current note.
 
 ## Success criteria
 
 - The clinician can navigate every proposed change without relying on colour.
 - A wrongly flagged phrase can be restored and a missed identifier manually
-  transformed.
+  transformed from the contextual selection menu.
 - The final summary distinguishes remaining direct detections, indirect risks,
   unavailable stages, and deliberately retained items.
 - Familiar users can complete a typical synthetic progress-note review within

@@ -25,6 +25,18 @@
   opacity: 0.48;
   cursor: default;
 }
+.review-saved-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
+  color: #305f56;
+  font-size: 0.86rem;
+}
+.review-saved-option input {
+  inline-size: 1rem;
+  block-size: 1rem;
+}
 .review-page .primary {
   background: #006566;
   color: white;
@@ -43,6 +55,20 @@
   gap: 1rem;
   padding: 1.2rem 0;
   border-bottom: 1px solid #b9cbc3;
+}
+.review-nav button[data-route] {
+  padding: 0.28rem 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #496062;
+  font-size: 0.78rem;
+}
+.review-nav button[data-route]:hover {
+  border-bottom-color: var(--verdigris);
+  background: transparent;
+  color: var(--ink);
 }
 .review-nav > span:first-of-type {
   font-weight: 600;
@@ -249,7 +275,8 @@
 }
 .input-panel,
 .text-pane,
-.review-list {
+.review-wizard,
+.review-history {
   border: 1px solid #afc2b8;
   border-radius: 8px;
   background: var(--paper);
@@ -279,6 +306,82 @@
   font-family: "SF Mono", Menlo, monospace;
   font-size: 0.7rem;
   color: #496062;
+}
+.selection-menu {
+  position: fixed;
+  z-index: 15;
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.35rem;
+  border: 1px solid #87a79c;
+  border-radius: 7px;
+  background: var(--paper);
+  box-shadow: 0 8px 22px rgb(18 36 38 / 20%);
+  transform: translateX(-50%);
+}
+.selection-menu[hidden] {
+  display: none;
+}
+.selection-menu button {
+  padding: 0.45rem 0.65rem;
+  font-size: 0.78rem;
+}
+.save-note-dialog {
+  width: min(680px, calc(100vw - 2rem));
+  padding: 2.25rem;
+  border-radius: 10px;
+}
+.save-note-form {
+  display: grid;
+  gap: 1.15rem;
+}
+.save-note-form header,
+.save-note-form p,
+.save-note-form h2 {
+  margin: 0;
+}
+.save-note-form h2 {
+  font-family: "Iowan Old Style", Palatino, serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 400;
+  letter-spacing: -0.035em;
+}
+.save-note-form > p:not(.review-error) {
+  max-width: 40rem;
+  color: #496062;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+.save-note-form label {
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+.save-note-form input {
+  width: 100%;
+  min-height: 3.25rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #87a79c;
+  border-radius: 6px;
+  background: white;
+  color: var(--ink);
+  font:
+    1.05rem/1.35 "Avenir Next",
+    sans-serif;
+}
+.field-hint {
+  margin-top: -0.7rem !important;
+  color: #496062;
+  font-size: 0.8rem !important;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.4rem;
+  padding-top: 1rem;
+  border-top: 1px solid #d3ded8;
 }
 .input-panel textarea {
   display: block;
@@ -311,6 +414,7 @@
   padding: 1.2rem;
   max-height: 400px;
   overflow: auto;
+  overscroll-behavior: contain;
   min-height: 220px;
   font-size: 0.97rem;
 }
@@ -339,8 +443,80 @@
   outline: 2px solid #006f70;
   outline-offset: 2px;
 }
-.review-list {
-  margin-top: 1.2rem;
+.note-text mark[data-active-review="true"] {
+  border-bottom: 3px solid #b8522d;
+  box-shadow: 0 0 0 3px rgb(184 82 45 / 24%);
+  outline: 1px solid #b8522d;
+  outline-offset: 2px;
+  scroll-margin-block: 5rem;
+}
+.note-text mark[data-active-review="true"][data-decision="accept"],
+.note-text mark[data-active-review="true"][data-decision="edit"] {
+  background: #cce5d8;
+}
+.review-wizard {
+  margin: 1.2rem 0;
+  overflow: hidden;
+}
+.wizard-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.2rem 0.85rem;
+}
+.wizard-heading .eyebrow {
+  margin: 0 0 0.25rem;
+}
+.wizard-heading h2 {
+  margin: 0;
+  font-family: "Iowan Old Style", Palatino, serif;
+  font-size: 1.55rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.wizard-count {
+  margin: 0;
+  color: #305f56;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.wizard-navigation {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.wizard-navigation button {
+  padding: 0.45rem 0.65rem;
+  font-size: 0.76rem;
+}
+.wizard-progress {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.7rem 1.2rem;
+  border-top: 1px solid #d3ded8;
+  border-bottom: 1px solid #d3ded8;
+  background: #f2f7f3;
+}
+.wizard-progress progress {
+  width: 100%;
+  height: 0.55rem;
+  accent-color: var(--verdigris);
+}
+.wizard-progress p {
+  margin: 0;
+  color: #305f56;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.review-wizard .detection-card {
+  border-bottom: 0;
+}
+.review-history {
+  margin-top: 1rem;
 }
 .detection-card {
   display: grid;
@@ -429,6 +605,33 @@
   font-family: "SF Mono", Menlo, monospace;
   font-size: 0.8rem;
 }
+.detection-controls .save-default {
+  align-items: flex-start;
+  margin-top: 0.7rem;
+  color: #496062;
+  line-height: 1.35;
+}
+.detection-controls .save-default input {
+  width: auto;
+  margin: 0.15rem 0 0;
+}
+.review-history details {
+  border-top: 1px solid #d3ded8;
+  background: #f2f7f3;
+}
+.review-history summary {
+  cursor: pointer;
+  padding: 0.85rem 1rem;
+  color: #305f56;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.empty-state {
+  margin: 0;
+  padding: 1.2rem;
+  color: #496062;
+  font-size: 0.88rem;
+}
 .decision-buttons {
   display: flex;
   flex-wrap: wrap;
@@ -446,6 +649,22 @@
   gap: 1.2rem;
   margin: 1rem 0;
   padding: 1.2rem 0;
+}
+.review-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2rem;
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid #afc2b8;
+  border-radius: 8px;
+  background: #f2f7f3;
+}
+.review-actions-bar p {
+  margin: 0;
+  color: #305f56;
+  font-size: 0.84rem;
 }
 .review-completion p {
   margin: 0 0 0.3rem;
@@ -474,10 +693,193 @@
   margin: 0.4rem 0 0;
   line-height: 1.6;
 }
+.library-page {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+.library-search,
+.mapping-form,
+.settings-card,
+.library-detail,
+.library-list {
+  border: 1px solid #afc2b8;
+  border-radius: 8px;
+  background: var(--paper);
+}
+.library-search,
+.mapping-form,
+.settings-card,
+.library-detail {
+  padding: 1.2rem;
+}
+.library-search > div,
+.mapping-form,
+.settings-card .decision-buttons {
+  display: flex;
+  gap: 0.75rem;
+  align-items: end;
+}
+.library-search label,
+.mapping-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: #496062;
+  font-size: 0.8rem;
+}
+.library-search input,
+.mapping-form input,
+.mapping-form select {
+  min-height: 2.45rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #afc2b8;
+  border-radius: 4px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+}
+.library-search input {
+  min-width: min(30rem, 70vw);
+}
+.mapping-form {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr 1fr 1fr auto;
+}
+.mapping-form .decision-buttons {
+  align-self: end;
+}
+.notes-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #afc2b8;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--paper);
+  text-align: left;
+}
+.notes-table th,
+.notes-table td {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #dce6e0;
+  vertical-align: top;
+}
+.notes-table th {
+  background: #edf4ef;
+  color: #496062;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.notes-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.notes-table td:nth-child(4) {
+  max-width: 32rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notes-table td:last-child {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+.patients-table td:last-child {
+  display: table-cell;
+}
+.settings-card h2,
+.library-detail h2 {
+  margin: 0 0 0.5rem;
+  font-family: "Iowan Old Style", Palatino, serif;
+}
+.settings-card p {
+  color: #496062;
+  line-height: 1.5;
+}
+.library-list {
+  margin-top: 1rem;
+  overflow: hidden;
+}
+.library-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid #d3ded8;
+}
+.library-row:last-child {
+  border-bottom: 0;
+}
+.library-row p {
+  margin: 0;
+  color: #496062;
+  font-size: 0.83rem;
+  overflow-wrap: anywhere;
+}
+.library-row > button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-weight: 650;
+  text-align: left;
+}
+.library-row > button:hover {
+  background: transparent;
+  color: var(--verdigris);
+}
+.library-detail pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 1rem;
+  background: #edf4ef;
+  font:
+    0.92rem/1.7 "Avenir Next",
+    sans-serif;
+}
+.operation-overlay {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(18 36 38 / 42%);
+}
+.operation-overlay[hidden] {
+  display: none;
+}
+.operation-overlay > section {
+  width: min(390px, 100%);
+  padding: 1.5rem;
+  border: 1px solid #87a79c;
+  background: #f7faf8;
+  box-shadow: 0 20px 60px rgb(18 36 38 / 32%);
+}
+.operation-overlay h2 {
+  margin: 0.2rem 0 0.45rem;
+  font-family: "Iowan Old Style", Palatino, serif;
+}
+.operation-overlay p:not(.eyebrow) {
+  color: #496062;
+  line-height: 1.5;
+}
+.operation-overlay progress {
+  width: 100%;
+  accent-color: var(--verdigris);
+}
+.operation-overlay button {
+  margin-top: 0.8rem;
+}
 @media (max-width: 850px) {
   .review-completion {
     flex-direction: column;
     align-items: flex-start;
+  }
+  .review-actions-bar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 @media (max-width: 720px) {
@@ -504,6 +906,35 @@
     align-items: flex-start;
     flex-direction: column;
   }
+  .wizard-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .wizard-navigation {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .wizard-progress {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+  .mapping-form {
+    grid-template-columns: 1fr;
+  }
+  .pane-footer {
+    flex-wrap: wrap;
+  }
+  .review-saved-option {
+    margin-left: 0;
+  }
+  .library-search > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .library-search input {
+    min-width: 0;
+    width: 100%;
+  }
   .review-nav > span:first-of-type {
     display: none;
   }
@@ -523,5 +954,13 @@
     align-items: flex-start;
     flex-direction: column;
     gap: 0.5rem;
+  }
+  .review-nav {
+    flex-wrap: wrap;
+    gap: 0.65rem;
+  }
+  .local-indicator {
+    width: 100%;
+    margin-left: 0;
   }
 }

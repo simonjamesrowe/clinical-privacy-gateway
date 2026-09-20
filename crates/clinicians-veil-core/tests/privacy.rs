@@ -48,6 +48,27 @@ fn proposals_require_decisions_and_rescan_and_edits_invalidate_it() {
 }
 
 #[test]
+fn saved_review_snapshot_restores_the_same_editable_session() {
+    let text = "Synthetic Client attended.";
+    let mut session = Session::new(
+        1,
+        text.into(),
+        entity(text, "Synthetic Client", Category::Person),
+    )
+    .unwrap();
+    let item = session.view().items[0].id;
+    session
+        .decide(item, Decision::Edit, Some("[CLIENT]".into()))
+        .unwrap();
+    session.finish_scan(vec![]).unwrap();
+    let (source, reviewed, snapshot) = session.saveable_note().unwrap();
+    let restored = Session::restore(9, &snapshot).unwrap();
+    assert_eq!(restored.view().source, source);
+    assert_eq!(restored.view().output, reviewed);
+    assert_eq!(restored.view().items[0].decision, Decision::Edit);
+}
+
+#[test]
 fn split_shared_names_keeps_independent_decisions() {
     let text = "Sam met Sam.";
     let mut s = Session::new(1, text.into(), entity(text, "Sam", Category::Person)).unwrap();
@@ -150,11 +171,27 @@ fn rules_cover_structured_details_without_dose_redaction() {
 }
 
 #[test]
+fn rules_flag_address_leads_and_nhs_numbers_labelled_as_such_even_when_invalid() {
+    let text = "Address: Flat 2B, 47 Fictional Row, Exampletown EX1 2MP. NHS no. 123 456 7890.";
+    let detections = detect_rules(text);
+    assert!(detections.iter().any(|detection| {
+        detection.category == Category::Location
+            && &text[detection.span.start..detection.span.end] == "Flat 2B, 47 Fictional Row"
+    }));
+    assert!(detections.iter().any(|detection| {
+        detection.category == Category::NhsNumber
+            && &text[detection.span.start..detection.span.end] == "123 456 7890"
+    }));
+}
+
+#[test]
 fn rules_are_bounded_on_adversarial_long_input() {
     for input in [
         format!("{}@{}!", "a".repeat(100_000), "a.".repeat(50_000)),
         "0-".repeat(100_000),
         "case reference: ".repeat(10_000),
+        format!("Flat {},", "A".repeat(100_000)),
+        "NHS no. ".repeat(20_000),
     ] {
         let start = std::time::Instant::now();
         let _ = detect_rules(&input);
@@ -203,4 +240,59 @@ fn generated_labels_never_collide_with_custom_labels() {
         .unwrap();
     s.split(ids[1]).unwrap();
     assert_eq!(s.view().output, "[PERSON_2] met [PERSON_3].");
+}
+
+#[test]
+fn saved_default_is_accepted_unless_the_clinician_requests_review() {
+    let text = "Alex Morgan called.";
+    let evidence = entity(text, "Alex Morgan", Category::Person);
+    let mut session = Session::new(1, text.into(), evidence).unwrap();
+    session.apply_library_defaults(
+        vec![(
+            Span { start: 0, end: 11 },
+            Category::Person,
+            "[CLIENT]".into(),
+        )],
+        false,
+    );
+    let view = session.view();
+    assert_eq!(view.items[0].replacement, "[CLIENT]");
+    assert_eq!(view.pending, 0);
+
+    let mut review_session = Session::new(
+        2,
+        text.into(),
+        entity(text, "Alex Morgan", Category::Person),
+    )
+    .unwrap();
+    review_session.apply_library_defaults(
+        vec![(
+            Span { start: 0, end: 11 },
+            Category::Person,
+            "[CLIENT]".into(),
+        )],
+        true,
+    );
+    assert_eq!(review_session.view().pending, 1);
+}
+
+#[test]
+fn only_an_affirmative_decision_can_be_saved_as_a_default() {
+    let text = "Alex Morgan called.";
+    let mut session = Session::new(
+        1,
+        text.into(),
+        entity(text, "Alex Morgan", Category::Person),
+    )
+    .unwrap();
+    let id = session.view().items[0].id;
+    assert!(session.mapping_for_group(id).is_err());
+    session.decide(id, Decision::Keep, None).unwrap();
+    assert!(session.mapping_for_group(id).is_err());
+    session
+        .decide(id, Decision::Edit, Some("[CLIENT]".into()))
+        .unwrap();
+    let mapping = session.mapping_for_group(id).unwrap();
+    assert_eq!(mapping.phrase, "Alex Morgan");
+    assert_eq!(mapping.replacement, "[CLIENT]");
 }

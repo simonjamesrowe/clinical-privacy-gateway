@@ -29,6 +29,42 @@ export interface ModelStatus {
   bytes: number;
   revision: string;
 }
+export interface NoteSummary {
+  id: number;
+  title: string;
+  patientName?: string;
+  patientReference?: string;
+  createdAt: number;
+  snippet: string;
+}
+export interface NoteView {
+  id: number;
+  patientId?: number;
+  title: string;
+  patientName?: string;
+  patientReference?: string;
+  sourceText?: string;
+  reviewedText: string;
+  provenance: string;
+  createdAt: number;
+}
+export interface OpenedNote {
+  note: NoteView;
+  session: ReviewSession;
+}
+export interface MappingView {
+  id: number;
+  phrase: string;
+  category: string;
+  replacement: string;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface PatientView {
+  id: number;
+  name: string;
+  patientReference?: string;
+}
 export interface Progress {
   operation: number;
   stage: string;

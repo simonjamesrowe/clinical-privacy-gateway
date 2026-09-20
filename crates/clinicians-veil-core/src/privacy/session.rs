@@ -1,4 +1,5 @@
 use super::*;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -20,6 +21,34 @@ struct Item {
     replacement: String,
     decision: Decision,
     evidence: Vec<Evidence>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SessionSnapshot {
+    revision: u64,
+    source: String,
+    checked: bool,
+    next_id: u64,
+    items: Vec<ItemSnapshot>,
+}
+#[derive(Serialize, Deserialize)]
+struct ItemSnapshot {
+    id: u64,
+    start: usize,
+    end: usize,
+    category: Category,
+    group: u64,
+    replacement: String,
+    decision: Decision,
+    evidence: Vec<EvidenceSnapshot>,
+}
+#[derive(Serialize, Deserialize)]
+struct EvidenceSnapshot {
+    start: usize,
+    end: usize,
+    category: Category,
+    confidence: f32,
+    stage: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -50,6 +79,13 @@ pub struct SessionView {
     pub pending: usize,
     pub retained: usize,
     pub checked: bool,
+}
+
+#[derive(Clone)]
+pub struct MappingDraft {
+    pub phrase: String,
+    pub category: Category,
+    pub replacement: String,
 }
 
 /// Lives only for the current review. Deliberately no Debug/Serialize on retained clinical state.
@@ -92,6 +128,69 @@ impl Session {
         } else {
             Ok(())
         }
+    }
+
+    pub fn restore(id: u64, snapshot: &str) -> PrivacyResult<Self> {
+        let snapshot: SessionSnapshot = serde_json::from_str(snapshot)
+            .map_err(|_| "The saved review record is unavailable.")?;
+        validate_source(&snapshot.source)?;
+        let items = snapshot
+            .items
+            .into_iter()
+            .map(|item| {
+                let span = Span {
+                    start: item.start,
+                    end: item.end,
+                };
+                if !span.valid_for(&snapshot.source) {
+                    return Err("The saved review record is unavailable.");
+                }
+                let evidence = item
+                    .evidence
+                    .into_iter()
+                    .map(|evidence| {
+                        let span = Span {
+                            start: evidence.start,
+                            end: evidence.end,
+                        };
+                        if !span.valid_for(&snapshot.source) {
+                            return Err("The saved review record is unavailable.");
+                        }
+                        let stage = match evidence.stage.as_str() {
+                            "rules" => "rules",
+                            "ner" => "ner",
+                            "manual" => "manual",
+                            "library" => "library",
+                            _ => return Err("The saved review record is unavailable."),
+                        };
+                        Ok(Evidence {
+                            span,
+                            category: evidence.category,
+                            confidence: evidence.confidence,
+                            stage,
+                        })
+                    })
+                    .collect::<PrivacyResult<Vec<_>>>()?;
+                Ok(Item {
+                    id: item.id,
+                    span,
+                    category: item.category,
+                    group: item.group,
+                    replacement: item.replacement,
+                    decision: item.decision,
+                    evidence,
+                })
+            })
+            .collect::<PrivacyResult<Vec<_>>>()?;
+        Ok(Self {
+            id,
+            revision: snapshot.revision,
+            source: snapshot.source,
+            items,
+            next_id: snapshot.next_id,
+            checked: snapshot.checked,
+            label_counters: BTreeMap::new(),
+        })
     }
 
     fn add_evidence(&mut self, evidence: Vec<Evidence>) -> PrivacyResult<()> {
@@ -251,6 +350,50 @@ impl Session {
         Ok(())
     }
 
+    /// Only an affirmative transformation can be promoted into a reusable default.
+    /// The phrase is kept in the adapter-owned encrypted library, never in this view.
+    pub fn mapping_for_group(&self, id: u64) -> PrivacyResult<MappingDraft> {
+        let item = self
+            .items
+            .iter()
+            .find(|item| item.id == id)
+            .ok_or("Detection is no longer available.")?;
+        if !matches!(item.decision, Decision::Accept | Decision::Edit) {
+            return Err("Accept or edit this replacement before saving it as a default.");
+        }
+        Ok(MappingDraft {
+            phrase: self.source[item.span.start..item.span.end].to_owned(),
+            category: item.category,
+            replacement: item.replacement.clone(),
+        })
+    }
+
+    /// Apply exact saved mappings. By default a saved mapping is an already
+    /// approved decision; callers can keep it pending when the clinician asks
+    /// to review saved mappings again for this note.
+    pub fn apply_library_defaults(
+        &mut self,
+        defaults: Vec<(Span, Category, String)>,
+        review_saved_mappings: bool,
+    ) {
+        for (span, category, replacement) in defaults {
+            let Some(item) = self
+                .items
+                .iter()
+                .find(|item| item.span == span && item.category == category)
+            else {
+                continue;
+            };
+            let group = item.group;
+            for member in self.items.iter_mut().filter(|member| member.group == group) {
+                member.replacement.clone_from(&replacement);
+                if !review_saved_mappings {
+                    member.decision = Decision::Accept;
+                }
+            }
+        }
+    }
+
     fn invalidate(&mut self) {
         self.revision += 1;
         self.checked = false;
@@ -369,6 +512,42 @@ impl Session {
         Ok(self.render().0)
     }
 
+    pub fn saveable_note(&self) -> PrivacyResult<(String, String, String)> {
+        let text = self.copy_text()?;
+        let provenance = serde_json::to_string(&SessionSnapshot {
+            revision: self.revision,
+            source: self.source.clone(),
+            checked: self.checked,
+            next_id: self.next_id,
+            items: self
+                .items
+                .iter()
+                .map(|item| ItemSnapshot {
+                    id: item.id,
+                    start: item.span.start,
+                    end: item.span.end,
+                    category: item.category,
+                    group: item.group,
+                    replacement: item.replacement.clone(),
+                    decision: item.decision,
+                    evidence: item
+                        .evidence
+                        .iter()
+                        .map(|evidence| EvidenceSnapshot {
+                            start: evidence.span.start,
+                            end: evidence.span.end,
+                            category: evidence.category,
+                            confidence: evidence.confidence,
+                            stage: evidence.stage.to_owned(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        })
+        .map_err(|_| "The reviewed note could not be saved.")?;
+        Ok((self.source.clone(), text, provenance))
+    }
+
     pub fn view(&self) -> SessionView {
         let (output, _, positions) = self.render();
         let items = self
@@ -391,6 +570,8 @@ impl Session {
                     confidence: i.evidence.iter().map(|e| e.confidence).fold(0.0, f32::max),
                     reason: if i.evidence.iter().any(|e| e.stage == "manual") {
                         "Manually selected for review."
+                    } else if i.evidence.iter().any(|e| e.stage == "library") {
+                        "Matches a saved local mapping."
                     } else if i.evidence.iter().any(|e| e.stage == "rules") {
                         "Matches a structured identifier pattern."
                     } else {
