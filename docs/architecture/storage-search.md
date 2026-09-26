@@ -17,6 +17,7 @@ SQL or `rusqlite` types.
 The database contains:
 
 - patient records, source text, reviewed notes, and revision metadata;
+- original document bytes and basename/format/length metadata in `note_documents`;
 - encrypted detection and review snapshots, sufficient to reopen the same
   editable review workspace;
 - encrypted global and patient-specific identifier mappings, including their
@@ -71,3 +72,14 @@ build before adoption. See [sqlite-vec](https://github.com/asg017/sqlite-vec).
   content cannot survive in derived storage.
 - Treat backup and device migration as future product decisions because the
   device-only Keychain item intentionally does not migrate.
+
+## Original documents
+
+Migration 2 transactionally adds `note_documents`. Its `note_id` primary key
+and cascading foreign key enforce one original per note and deletion with that
+note. Bytes and filename are protected by SQLCipher; a length check constrains
+each file to 25 MiB. Existing notes require no backfill. Save commits the note,
+original, provenance and FTS entry together, rolling back all on failure. Edits
+to reviewed notes preserve the existing original. Search uses only attachment
+metadata, never the BLOB, and does not index original bytes, source text or
+filenames. Original retrieval happens only for an explicit in-app preview.

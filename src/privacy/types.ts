@@ -30,6 +30,7 @@ export interface ModelStatus {
   revision: string;
 }
 export interface NoteSummary {
+  document?: DocumentMetadata | null;
   id: number;
   patientId?: number;
   title: string;
@@ -39,6 +40,7 @@ export interface NoteSummary {
   snippet: string;
 }
 export interface NoteView {
+  document?: DocumentMetadata | null;
   id: number;
   patientId?: number;
   title: string;
@@ -79,3 +81,24 @@ export interface PrivacyBridge {
   call<T>(command: string, args?: Record<string, unknown>): Promise<T>;
   progress(callback: (event: Progress) => void): Promise<() => void>;
 }
+
+export interface DocumentMetadata {
+  name: string;
+  format: "txt" | "docx" | "pdf";
+  byteLength: number;
+}
+export type DocumentBlock =
+  | { kind: "paragraph" | "heading" | "listItem"; text: string }
+  | { kind: "table"; rows: string[][] };
+export interface ExtractedDocument {
+  text: string;
+  blocks: DocumentBlock[];
+  warnings: string[];
+  pageCount?: number | null;
+}
+export interface ImportedDocument {
+  id: number;
+  document: DocumentMetadata;
+  extracted: ExtractedDocument;
+}
+export type DocumentPreview = ImportedDocument;

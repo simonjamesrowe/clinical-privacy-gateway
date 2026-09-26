@@ -14,6 +14,7 @@ unlocked system. FileVault remains complementary and expected.
 
 | Material                         | Retention                                  | Searchable | Egress eligible              |
 | -------------------------------- | ------------------------------------------ | ---------- | ---------------------------- |
+| Original document and filename | Until its reviewed note is deleted | No | Never |
 | Saved source text                | Until its reviewed note is deleted         | No         | Never                        |
 | Recorded source audio            | Encrypted for 30 days after note creation  | No         | Never                        |
 | Original aligned transcript      | Encrypted for the same 30 days             | No         | Never                        |
@@ -25,7 +26,7 @@ unlocked system. FileVault remains complementary and expected.
 
 Expiry removes source audio, the original aligned transcript, alignment data,
 and any derived temporary files as one operation. Deleting a note removes its
-encrypted source text, reviewed text, review record, and search entries together.
+encrypted original document, source text, reviewed text, review record, and search entries together.
 
 ## Storage encryption and keys
 
@@ -87,3 +88,15 @@ pseudonymised, not anonymous, GDPR safe, compliant, or approved.
 
 Before real clinical use, the clinician must follow the employing organisation's
 information-governance route. Pseudonymised health data remains personal data.
+
+## Imported documents
+
+Import and preview use memory only. Original bytes and the basename are saved
+in SQLCipher in the same transaction as the note and review record. External
+paths are not persisted. A note has at most one original; it is never modified
+by source-text edits or note review. Originals and filenames are excluded from
+FTS and egress. PDFKit renders inert page images, while Word/text previews are
+structured text nodes. Neither path follows document links, external XML
+relationships, scripts, actions or embedded objects. No plaintext preview
+files or browser persistence are created. Native handles and buffers are
+released on success, discard, cancellation, failure and window destruction.

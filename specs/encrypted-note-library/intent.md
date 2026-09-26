@@ -1,6 +1,6 @@
 # Encrypted Note Library Intent
 
-**Status:** Partially implemented for pasted-text review
+**Status:** Implemented for pasted and imported text; audio remains planned
 
 ## Intent
 
@@ -19,7 +19,9 @@ Transcription/audio support remains planned.
   patient-specific identifier mappings, and search indexes.
   Audio and transcript retention remain planned.
 - A random database key held in device-only Keychain storage.
-- Reviewed notes retained until explicit deletion.
+- Reviewed notes and their exact original documents retained until explicit deletion.
+- An optional original document is saved atomically with its note and retained
+  through edits. It can be previewed locally after the external file disappears.
 - Transactional note save, search-index update, and complete deletion.
 - Patient deletion removes that patient's notes, their search entries, and
   patient-specific redactions in the same transaction.

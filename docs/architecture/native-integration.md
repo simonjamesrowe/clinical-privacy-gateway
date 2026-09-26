@@ -81,3 +81,21 @@ content-free messages; progress events carry only stage/count/operation metadata
   and workflow artifact are the distribution point for the target M2 Mac. The user must
   explicitly complete macOS’s Gatekeeper flow on first launch; Developer ID
   signing and notarisation remain deferred until broader distribution is required.
+
+## Document adapters
+
+The framework-independent core owns document formats, character/file limits,
+original-file values and structured preview views. Native adapters own the
+file chooser (`rfd`), bounded ZIP/XML parsing (`zip` and `quick-xml`), and PDFKit
+extraction/rendering through `objc2-pdf-kit`. No Swift bridge, subprocess,
+Python runtime, Office installation or network service is required.
+
+Commands import from a native picker, release an import handle, open a saved
+note or import preview, request one PDF page and close the preview. The webview
+cannot supply filesystem paths. Import handles bind the patient and staged
+original; detection validates that binding and warning acknowledgment before
+creating a review. One cancellable operation is active at a time. PDFKit runs
+on blocking workers with scoped autorelease pools and cancellation between
+pages. A single native page operation cannot be interrupted mid-call; its
+result is discarded if cancelled. PDF images are rendered on demand at a
+bounded 400–1600-pixel requested width, without disk caches or active content.

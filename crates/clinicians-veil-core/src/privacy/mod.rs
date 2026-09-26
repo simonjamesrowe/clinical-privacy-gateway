@@ -6,7 +6,7 @@ pub use session::*;
 
 use serde::{Deserialize, Serialize};
 
-pub const MAX_CHARACTERS: usize = 20_000;
+pub const MAX_CHARACTERS: usize = 100_000;
 pub type PrivacyResult<T> = Result<T, &'static str>;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -82,7 +82,7 @@ pub fn validate_source(text: &str) -> PrivacyResult<()> {
         return Err("Enter some source text first.");
     }
     if text.chars().count() > MAX_CHARACTERS {
-        return Err("Use at most 20,000 characters.");
+        return Err("Use at most 100,000 characters.");
     }
     Ok(())
 }

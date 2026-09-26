@@ -35,13 +35,13 @@ web framework.
 
 ## First-release capability
 
-- Paste text or dictate through the microphone.
+- Paste text, import a text/Word/PDF document, or dictate through the microphone.
 - Transcribe locally after voice-activity detection.
 - Detect direct and indirect identifiers using independent local passes.
 - Apply consistent pseudonymisation, generalisation, and constrained cleanup.
 - Require clinician review before saving or copying transformed text.
-- Save original and reviewed pasted-text notes with their review decisions in
-  one encrypted database; temporary source audio remains planned.
+- Save source text, reviewed notes, original documents and review decisions
+  in one encrypted database; temporary source audio remains planned.
 - Search reviewed notes with encrypted FTS5 keyword search.
 - Reuse clinician-approved global or patient-specific identifier mappings as
   accepted exact-match local defaults, with an explicit per-note review option.
@@ -87,11 +87,11 @@ These are stable domain shapes, not committed Rust or IPC schemas:
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | Desktop shell      | Tauri 2.11 line with WKWebView; initial Clinician’s Veil welcome shell                                                                                                            | Decided                                                             |
 | Core               | Plain Rust library behind adapters                                                                                                                                                | Decided                                                             |
-| Persistence        | `rusqlite`, bundled SQLCipher, FTS5                                                                                                                                               | Implemented for reviewed pasted-text notes; audio retention pending |
+| Persistence        | `rusqlite`, bundled SQLCipher, FTS5                                                                                                                                               | Implemented for reviewed text notes and their original documents; audio retention pending |
 | Speech             | SpeechAnalyzer first; benchmark against WhisperKit                                                                                                                                | Benchmark gate                                                      |
 | Detection          | Embedded Rust rules plus pinned BERT NER/ONNX baseline for in-memory text review; no Python sidecar                                                                               | Implemented baseline; target-hardware/clinical validation pending   |
 | Local LLM          | Llama 3.2 1B, sequentially loaded, for privacy sweep and cleanup                                                                                                                  | Benchmark gate                                                      |
-| Search             | FTS5/BM25 in the first release                                                                                                                                                    | Implemented for reviewed pasted-text notes                          |
+| Search             | FTS5/BM25 in the first release                                                                                                                                                    | Implemented for reviewed pasted and imported text; originals excluded                          |
 | Semantic search    | `sqlite-vec` integration seam only                                                                                                                                                | Deferred                                                            |
 | Audio retention    | Encrypted source audio and aligned transcript for 30 days                                                                                                                         | Decided                                                             |
 | External AI        | Designed now, unavailable pending use case and governance approval                                                                                                                | Gated                                                               |
@@ -104,3 +104,5 @@ These are stable domain shapes, not committed Rust or IPC schemas:
 - [Processing pipeline](architecture/processing-pipeline.md)
 - [Storage and search](architecture/storage-search.md)
 - [Native integration](architecture/native-integration.md)
+
+Document import is described in [its feature intent](../specs/document-import/intent.md).

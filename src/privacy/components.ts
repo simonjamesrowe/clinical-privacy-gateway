@@ -1,6 +1,7 @@
 // Builders for the design-system components in src/styles/components.css.
 // Each returns the markup documented in design-system/index.html.
 import { h, searchIcon } from "./dom";
+import type { DocumentBlock } from "./types";
 
 type Content = Node | string | false | null | undefined;
 
@@ -250,5 +251,65 @@ export function confirmation(options: {
         options.confirmLabel ?? `Delete ${options.subject}`,
       ),
     ),
+  );
+}
+
+/** Original-document actions are separate from the note row opener. */
+export function documentButton(
+  format: string,
+  label: string,
+  onClick: () => void,
+  key?: number,
+): HTMLButtonElement {
+  return h(
+    "button",
+    {
+      type: "button",
+      class: "button button--compact document-button",
+      "aria-label": label,
+      title: label,
+      "data-document": key,
+      onclick: onClick,
+    },
+    h("span", { "aria-hidden": "true" }, "▤"),
+    format.toUpperCase(),
+  );
+}
+
+/** Inert structured content only. Never interpret document markup or activate links. */
+export function documentContent(blocks: DocumentBlock[]): HTMLElement {
+  return h(
+    "div",
+    {
+      class: "document-content",
+      tabindex: "0",
+      "aria-label": "Original document content",
+    },
+    ...blocks.map((block) => {
+      if (block.kind === "table")
+        return h(
+          "div",
+          { class: "table-scroll" },
+          h(
+            "table",
+            { class: "data-table" },
+            h(
+              "tbody",
+              {},
+              ...block.rows.map((row) =>
+                h("tr", {}, ...row.map((cell) => h("td", {}, cell))),
+              ),
+            ),
+          ),
+        );
+      return h(
+        block.kind === "heading" ? "h2" : "p",
+        {
+          class:
+            block.kind === "heading" ? "section-title" : "document-paragraph",
+        },
+        block.kind === "listItem" ? `• ${block.text}` : block.text,
+      );
+    }),
   );
 }

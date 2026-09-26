@@ -1,3 +1,4 @@
+use clinicians_veil_core::documents::{DocumentFormat, DocumentMetadata, OriginalDocument};
 use clinicians_veil_core::privacy::{Category, PrivacyResult};
 use getrandom::fill;
 use rusqlite::{params, Connection, ErrorCode, OpenFlags, OptionalExtension};
@@ -30,6 +31,7 @@ pub struct Storage {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteSummary {
+    pub document: Option<DocumentMetadata>,
     pub id: i64,
     pub patient_id: Option<i64>,
     pub title: String,
@@ -57,6 +59,7 @@ const PATIENT_COLUMNS: &str = "patients.id, patients.name, patients.patient_refe
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteView {
+    pub document: Option<DocumentMetadata>,
     pub id: i64,
     pub patient_id: Option<i64>,
     pub title: String,
@@ -197,9 +200,33 @@ impl Storage {
                 .execute("ALTER TABLE notes ADD COLUMN source_text TEXT", [])
                 .map_err(|_| STORAGE_ERROR)?;
         }
+        // Additive, transactional migration. The primary key enforces one original per note.
+        let transaction = connection.transaction().map_err(|_| STORAGE_ERROR)?;
+        let migrated: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = 2)",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| STORAGE_ERROR)?;
+        if !migrated {
+            transaction.execute_batch("CREATE TABLE note_documents (
+            note_id INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            format TEXT NOT NULL CHECK(format IN ('txt', 'docx', 'pdf')),
+            byte_length INTEGER NOT NULL CHECK(byte_length = length(bytes) AND byte_length <= 26214400),
+            bytes BLOB NOT NULL
+        ); INSERT INTO schema_migrations(version) VALUES (2);").map_err(|_| STORAGE_ERROR)?;
+        }
+        // A recorded migration with missing columns/table is corruption, not an empty library.
+        transaction
+            .prepare("SELECT note_id, name, format, byte_length, bytes FROM note_documents LIMIT 0")
+            .map_err(|_| STORAGE_ERROR)?;
+        transaction.commit().map_err(|_| STORAGE_ERROR)?;
         task(&mut connection)
     }
 
+    #[cfg(test)]
     pub fn save_note(
         &self,
         patient_id: i64,
@@ -208,6 +235,27 @@ impl Storage {
         source_text: &str,
         reviewed_text: &str,
         provenance: &str,
+    ) -> PrivacyResult<NoteView> {
+        self.save_note_with_document(
+            patient_id,
+            title,
+            patient_reference,
+            source_text,
+            reviewed_text,
+            provenance,
+            None,
+        )
+    }
+
+    pub fn save_note_with_document(
+        &self,
+        patient_id: i64,
+        title: &str,
+        patient_reference: Option<&str>,
+        source_text: &str,
+        reviewed_text: &str,
+        provenance: &str,
+        document: Option<&OriginalDocument>,
     ) -> PrivacyResult<NoteView> {
         let title = validate_title(title)?;
         let patient_reference = normalise_optional(
@@ -233,8 +281,13 @@ impl Storage {
                 "INSERT INTO note_search(rowid, title, patient_reference, reviewed_text) VALUES (?1, ?2, ?3, ?4)",
                 params![id, title, patient_reference, reviewed_text],
             ).map_err(|_| STORAGE_ERROR)?;
+            if let Some(document) = document {
+                transaction.execute("INSERT INTO note_documents(note_id, name, format, byte_length, bytes) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![id, document.metadata.name, document.metadata.format.extension(), document.metadata.byte_length as i64, document.bytes]).map_err(|_| STORAGE_ERROR)?;
+            }
             transaction.commit().map_err(|_| STORAGE_ERROR)?;
-            Ok(NoteView { id, patient_id: Some(patient_id), title: title.to_owned(), patient_name: Some(patient_name), patient_reference, source_text: Some(source_text.to_owned()), reviewed_text: reviewed_text.to_owned(), provenance: provenance.to_owned(), created_at })
+            Ok(NoteView {
+                document: document.map(|d| d.metadata.clone()), id, patient_id: Some(patient_id), title: title.to_owned(), patient_name: Some(patient_name), patient_reference, source_text: Some(source_text.to_owned()), reviewed_text: reviewed_text.to_owned(), provenance: provenance.to_owned(), created_at })
         })
     }
 
@@ -282,6 +335,7 @@ impl Storage {
                 .map_err(|_| STORAGE_ERROR)?;
             transaction.commit().map_err(|_| STORAGE_ERROR)?;
             Ok(NoteView {
+                document: document_metadata(connection, id)?,
                 id,
                 patient_id: Some(patient_id),
                 title,
@@ -308,9 +362,10 @@ impl Storage {
             if let Some(search) = fts_query(query) {
                 let mut statement = connection.prepare(
                     "SELECT notes.id, notes.title, COALESCE(patients.patient_reference, notes.patient_reference), notes.created_at,
-                       snippet(note_search, 2, '', '', '…', 12), patients.name, notes.patient_id
+                       snippet(note_search, 2, '', '', '…', 12), patients.name, notes.patient_id, note_documents.name, note_documents.format, note_documents.byte_length
                      FROM note_search JOIN notes ON notes.id = note_search.rowid
                      LEFT JOIN patients ON patients.id = notes.patient_id
+                     LEFT JOIN note_documents ON note_documents.note_id = notes.id
                      WHERE note_search MATCH ?1 AND (?2 IS NULL OR notes.patient_id = ?2)
                      ORDER BY bm25(note_search), notes.id DESC"
                 ).map_err(|_| STORAGE_ERROR)?;
@@ -319,8 +374,9 @@ impl Storage {
             } else {
                 let mut statement = connection.prepare(
                     "SELECT notes.id, notes.title, COALESCE(patients.patient_reference, notes.patient_reference), notes.created_at,
-                       substr(notes.reviewed_text, 1, 180), patients.name, notes.patient_id
+                       substr(notes.reviewed_text, 1, 180), patients.name, notes.patient_id, note_documents.name, note_documents.format, note_documents.byte_length
                      FROM notes LEFT JOIN patients ON patients.id = notes.patient_id
+                     LEFT JOIN note_documents ON note_documents.note_id = notes.id
                      WHERE ?1 IS NULL OR notes.patient_id = ?1
                      ORDER BY notes.id DESC"
                 ).map_err(|_| STORAGE_ERROR)?;
@@ -333,8 +389,23 @@ impl Storage {
 
     pub fn note(&self, id: i64) -> PrivacyResult<NoteView> {
         self.with_connection(|connection| connection.query_row(
-            "SELECT notes.id, notes.patient_id, notes.title, notes.patient_reference, notes.source_text, notes.reviewed_text, notes.provenance, notes.created_at, patients.name FROM notes LEFT JOIN patients ON patients.id = notes.patient_id WHERE notes.id = ?1", [id], note_view
+            "SELECT notes.id, notes.patient_id, notes.title, notes.patient_reference, notes.source_text, notes.reviewed_text, notes.provenance, notes.created_at, patients.name, note_documents.name, note_documents.format, note_documents.byte_length FROM notes LEFT JOIN patients ON patients.id = notes.patient_id LEFT JOIN note_documents ON note_documents.note_id = notes.id WHERE notes.id = ?1", [id], note_view
         ).optional().map_err(|_| STORAGE_ERROR)?.ok_or("This note is no longer available."))
+    }
+
+    pub fn document(&self, id: i64) -> PrivacyResult<OriginalDocument> {
+        self.with_connection(|connection| {
+            let metadata =
+                document_metadata(connection, id)?.ok_or("This note has no original document.")?;
+            let bytes = connection
+                .query_row(
+                    "SELECT bytes FROM note_documents WHERE note_id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            Ok(OriginalDocument { metadata, bytes })
+        })
     }
 
     pub fn delete_note(&self, id: i64) -> PrivacyResult<()> {
@@ -666,8 +737,38 @@ fn lowercase(value: &str) -> String {
     value.chars().flat_map(char::to_lowercase).collect()
 }
 
+fn read_document_metadata(
+    row: &rusqlite::Row<'_>,
+    start: usize,
+) -> rusqlite::Result<Option<DocumentMetadata>> {
+    let name: Option<String> = row.get(start)?;
+    name.map(|name| {
+        let format: String = row.get(start + 1)?;
+        let format =
+            DocumentFormat::from_extension(&format).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        Ok(DocumentMetadata {
+            name,
+            format,
+            byte_length: row.get::<_, i64>(start + 2)? as usize,
+        })
+    })
+    .transpose()
+}
+fn document_metadata(connection: &Connection, id: i64) -> PrivacyResult<Option<DocumentMetadata>> {
+    connection
+        .query_row(
+            "SELECT name, format, byte_length FROM note_documents WHERE note_id = ?1",
+            [id],
+            |row| read_document_metadata(row, 0),
+        )
+        .optional()
+        .map(Option::flatten)
+        .map_err(|_| STORAGE_ERROR)
+}
+
 fn note_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteSummary> {
     Ok(NoteSummary {
+        document: read_document_metadata(row, 7)?,
         id: row.get(0)?,
         title: row.get(1)?,
         patient_reference: row.get(2)?,
@@ -679,6 +780,7 @@ fn note_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteSummary> {
 }
 fn note_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteView> {
     Ok(NoteView {
+        document: read_document_metadata(row, 9)?,
         id: row.get(0)?,
         patient_id: row.get(1)?,
         title: row.get(2)?,
@@ -1104,5 +1206,169 @@ mod tests {
                 .as_deref(),
             Some("SYN-9")
         );
+    }
+}
+
+#[cfg(test)]
+mod document_tests {
+    use super::*;
+    fn original() -> OriginalDocument {
+        OriginalDocument {
+            metadata: DocumentMetadata {
+                name: "unsearchablefilename.txt".into(),
+                format: DocumentFormat::Txt,
+                byte_length: 18,
+            },
+            bytes: b"unsearchablesource".to_vec(),
+        }
+    }
+    #[test]
+    fn originals_survive_restart_edits_and_external_file_removal_but_are_not_indexed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.sqlite");
+        let mut original = original();
+        original.metadata.byte_length = original.bytes.len();
+        let external = dir.path().join("synthetic.txt");
+        fs::write(&external, &original.bytes).unwrap();
+        let store = Storage::open_for_test(path.clone(), [8; 32]).unwrap();
+        let patient = store.create_patient("Synthetic Client", None).unwrap();
+        let note = store
+            .save_note_with_document(
+                patient.id,
+                "Reviewed title",
+                None,
+                "unsearchablesource",
+                "Reviewed outcome",
+                "{}",
+                Some(&original),
+            )
+            .unwrap();
+        fs::remove_file(&external).unwrap();
+        drop(store);
+        let store = Storage::open_for_test(path.clone(), [8; 32]).unwrap();
+        assert_eq!(store.document(note.id).unwrap(), original);
+        assert!(store.note(note.id).unwrap().document.is_some());
+        assert!(store.search_notes("outcome", None).unwrap()[0]
+            .document
+            .is_some());
+        assert!(store.search_notes("", Some(patient.id)).unwrap()[0]
+            .document
+            .is_some());
+        assert!(store
+            .search_notes("unsearchablefilename", None)
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .search_notes("unsearchablesource", None)
+            .unwrap()
+            .is_empty());
+        store
+            .update_note(
+                note.id,
+                patient.id,
+                "Updated",
+                "Edited source",
+                "Reviewed updated outcome",
+                "{}",
+            )
+            .unwrap();
+        assert_eq!(store.document(note.id).unwrap(), original);
+        let encrypted = fs::read(path).unwrap();
+        for phrase in [&original.bytes[..], b"unsearchablefilename".as_slice()] {
+            assert!(!encrypted
+                .windows(phrase.len())
+                .any(|window| window == phrase));
+        }
+        store.delete_note(note.id).unwrap();
+        assert!(store.document(note.id).is_err());
+        assert!(store.search_notes("outcome", None).unwrap().is_empty());
+    }
+    #[test]
+    fn document_insert_failure_rolls_back_note_and_index_and_patient_delete_cascades() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage::open_for_test(dir.path().join("library.sqlite"), [4; 32]).unwrap();
+        let patient = store.create_patient("Synthetic Client", None).unwrap();
+        let mut original = original();
+        original.metadata.byte_length = 999;
+        assert!(store
+            .save_note_with_document(
+                patient.id,
+                "Test",
+                None,
+                "source",
+                "outcome",
+                "{}",
+                Some(&original)
+            )
+            .is_err());
+        assert!(store.search_notes("", None).unwrap().is_empty());
+        assert!(store.search_notes("outcome", None).unwrap().is_empty());
+        original.metadata.byte_length = original.bytes.len();
+        let first = store
+            .save_note_with_document(
+                patient.id,
+                "First",
+                None,
+                "source",
+                "outcome",
+                "{}",
+                Some(&original),
+            )
+            .unwrap();
+        let second = store
+            .save_note_with_document(
+                patient.id,
+                "Second",
+                None,
+                "source",
+                "outcome",
+                "{}",
+                Some(&original),
+            )
+            .unwrap();
+        store.with_connection(|connection| {
+            assert!(connection.execute("INSERT INTO note_documents SELECT * FROM note_documents WHERE note_id = ?1", [first.id]).is_err());
+            Ok(())
+        }).unwrap();
+        assert_eq!(store.search_notes("outcome", None).unwrap().len(), 2);
+        store.delete_patient(patient.id).unwrap();
+        assert!(store.document(first.id).is_err());
+        assert!(store.document(second.id).is_err());
+        store
+            .with_connection(|connection| {
+                assert_eq!(
+                    connection
+                        .query_row("SELECT count(*) FROM note_documents", [], |r| r
+                            .get::<_, i64>(0))
+                        .unwrap(),
+                    0
+                );
+                Ok(())
+            })
+            .unwrap();
+    }
+    #[test]
+    fn additive_migration_preserves_existing_notes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.sqlite");
+        let store = Storage::open_for_test(path.clone(), [6; 32]).unwrap();
+        let patient = store.create_patient("Synthetic Client", None).unwrap();
+        let note = store
+            .save_note(
+                patient.id,
+                "Existing",
+                None,
+                "source",
+                "retained outcome",
+                "{}",
+            )
+            .unwrap();
+        store.with_connection(|connection| {
+            connection.execute_batch("DROP TABLE note_documents; DELETE FROM schema_migrations WHERE version = 2;").unwrap(); Ok(())
+        }).unwrap();
+        drop(store);
+        let store = Storage::open_for_test(path, [6; 32]).unwrap();
+        assert!(store.note(note.id).unwrap().document.is_none());
+        assert_eq!(store.search_notes("retained", None).unwrap().len(), 1);
     }
 }

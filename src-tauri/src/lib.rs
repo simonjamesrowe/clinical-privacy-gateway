@@ -3,6 +3,7 @@ use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
 
+mod documents;
 mod privacy;
 mod storage;
 
@@ -93,6 +94,11 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             build_info,
+            privacy::import_document,
+            privacy::release_import,
+            privacy::open_document_preview,
+            privacy::document_preview_page,
+            privacy::close_document_preview,
             privacy::model_status,
             privacy::install_model,
             privacy::remove_model,
