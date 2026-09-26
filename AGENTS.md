@@ -14,6 +14,9 @@ the system. Then follow the relevant architecture branch:
 - **Persistence or retrieval:** read
   [storage and search](docs/architecture/storage-search.md) before changing
   SQLite, encryption, audio retention, indexing, or search.
+- **Screens, styles, or interface copy:** read
+  [the design system](docs/design-system.md) before changing navigation,
+  layout, tokens, components, or wording.
 - **Desktop or Apple integration:** read
   [native integration](docs/architecture/native-integration.md) before changing
   Tauri commands, capabilities, WKWebView, Swift, SpeechAnalyzer, or packaging.
