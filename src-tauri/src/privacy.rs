@@ -423,8 +423,9 @@ pub fn save_reviewed_note(
 pub fn search_notes(
     state: State<'_, PrivacyState>,
     query: String,
+    patient_id: Option<i64>,
 ) -> PrivacyResult<Vec<NoteSummary>> {
-    state.storage()?.search_notes(&query)
+    state.storage()?.search_notes(&query, patient_id)
 }
 
 #[tauri::command]
@@ -509,46 +510,28 @@ pub fn create_patient(
 }
 
 #[tauri::command]
-pub fn create_mapping(
+pub fn update_patient(
     state: State<'_, PrivacyState>,
-    phrase: String,
-    category: privacy::Category,
-    replacement: String,
-) -> PrivacyResult<MappingView> {
+    id: i64,
+    name: String,
+    patient_reference: Option<String>,
+) -> PrivacyResult<PatientView> {
     state
         .storage()?
-        .create_mapping(&phrase, category, &replacement)
+        .update_patient(id, &name, patient_reference.as_deref())
 }
 
+/// Redactions are created during review and never deleted from the library, so
+/// the only library change is the replacement of an all-patients redaction.
 #[tauri::command]
 pub fn update_mapping(
     state: State<'_, PrivacyState>,
     id: i64,
-    phrase: String,
-    category: privacy::Category,
     replacement: String,
 ) -> PrivacyResult<MappingView> {
     state
         .storage()?
-        .update_mapping(id, &phrase, category, &replacement)
-}
-
-#[tauri::command]
-pub fn delete_mapping(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<()> {
-    state.storage()?.delete_mapping(id)
-}
-
-#[tauri::command]
-pub fn create_patient_mapping(
-    state: State<'_, PrivacyState>,
-    patient_id: i64,
-    phrase: String,
-    category: privacy::Category,
-    replacement: String,
-) -> PrivacyResult<MappingView> {
-    state
-        .storage()?
-        .create_patient_mapping(patient_id, &phrase, category, &replacement)
+        .update_mapping_replacement(id, &replacement)
 }
 
 #[tauri::command]
@@ -556,22 +539,11 @@ pub fn update_patient_mapping(
     state: State<'_, PrivacyState>,
     patient_id: i64,
     id: i64,
-    phrase: String,
-    category: privacy::Category,
     replacement: String,
 ) -> PrivacyResult<MappingView> {
     state
         .storage()?
-        .update_patient_mapping(patient_id, id, &phrase, category, &replacement)
-}
-
-#[tauri::command]
-pub fn delete_patient_mapping(
-    state: State<'_, PrivacyState>,
-    patient_id: i64,
-    id: i64,
-) -> PrivacyResult<()> {
-    state.storage()?.delete_patient_mapping(patient_id, id)
+        .update_patient_mapping_replacement(patient_id, id, &replacement)
 }
 
 #[tauri::command]
