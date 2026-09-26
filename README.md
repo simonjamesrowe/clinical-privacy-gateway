@@ -23,10 +23,13 @@ final local check before using **Copy reviewed text**. Discard or return Home to
 clear the session. After the final check, a clinician can save an immutable
 reviewed note with a title and selected patient. The original text, reviewed
 text, and review decisions stay together in the local encrypted database and a
-saved note reopens in the same review workspace. Search runs locally over
-reviewed text and the note title. Mappings can apply to all patients or only
-the selected patient; they apply automatically on a new note unless the
-clinician chooses **Review saved mappings** before analysis.
+saved note reopens in the same review workspace. Each patient has Details,
+Notes, and Redactions tabs; search runs locally over reviewed text and the note
+title, for one patient or for all. Saved redactions can apply to all patients
+or only the selected patient; they apply automatically on a new note unless the
+clinician chooses **Review saved redactions** before analysis. The interface
+follows the [design system](design-system/index.html)
+(`npm run design-system`).
 
 The local Llama contextual sweep and cleanup are not included yet. Initials,
 partial organisations, file paths and indirect identifying combinations require

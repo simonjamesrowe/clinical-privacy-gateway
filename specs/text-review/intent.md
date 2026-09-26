@@ -31,7 +31,7 @@ intents; it does not claim those first-release intents are all complete.
   save an accepted or edited exact phrase/category mapping for all patients or
   only that patient. A patient mapping takes precedence over a global mapping.
   Saved mappings apply as accepted on a new note; the clinician can choose
-  **Review saved mappings** before analysis to leave those matches pending.
+  **Review saved redactions** before analysis to leave those matches pending.
 - Accept, edit the bracketed placeholder, keep, or remove. Select any missed
   source phrase to open a contextual **Add to review** menu beside the
   selection. Unapplied label edits block copying.
@@ -64,13 +64,16 @@ intents; it does not claim those first-release intents are all complete.
   reviewable decision, including an already resolved or automatically applied
   mapping. Selecting a highlighted source or result occurrence opens its group
   in the wizard for editing. Resolving the final action starts the final local
-  check automatically and shows its progress overlay; new findings return to
-  the wizard. Reviewed-note actions appear above the text panes and in the
-  footer. Resolved groups stay in a collapsed history and can be reopened before
-  the final check. Long operations use a content-free local progress overlay and
+  check automatically and shows its progress in the header activity bar; new
+  findings return to the wizard. Reviewed-note actions appear above the text
+  panes and in the save bar at the foot of the workspace. Resolved groups stay
+  in a collapsed history and can be reopened before the final check. Long
+  operations use the content-free header activity bar, keep the page inert, and
   expose cancellation only when the native operation can be cancelled.
-- A passed final check can save a note with a required title and selected
-  patient. The encrypted record retains original text, reviewed text, and the
+- A passed final check can save a note from the inline save bar with a
+  required title and selected patient; saving returns to that patient's Notes
+  tab. Leaving an unsaved review for another screen or Home asks, inline,
+  whether to discard the session. The encrypted record retains original text, reviewed text, and the
   complete review state so it can reopen in the same editable workspace. Notes
   can be searched, copied, and deleted from the encrypted library.
 

@@ -49,7 +49,7 @@ or relationship inference. A clinician may explicitly save an accepted or edited
 exact phrase/category mapping for all patients or the selected patient. Both
 case-insensitively detect later whole-phrase occurrences, with the patient
 mapping taking precedence. A saved mapping is accepted automatically on a new
-note, unless the per-note **Review saved mappings** control leaves library
+note, unless the per-note **Review saved redactions** control leaves library
 matches pending.
 Placeholder labels are constrained to bracketed ASCII
 labels; free-form generated prose is not accepted. Final rescans mask generated

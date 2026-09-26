@@ -22,9 +22,17 @@ Transcription/audio support remains planned.
 - Reviewed notes retained until explicit deletion.
 - Transactional note save, search-index update, and complete deletion.
 - Patient deletion removes that patient's notes, their search entries, and
-  patient-specific mappings in the same transaction.
-- Patient and note deletion each require a modal confirmation that asks, “Are
-  you really sure you want to delete this?”
+  patient-specific redactions in the same transaction.
+- Patient and note deletion each require an inline confirmation, in place of
+  the row or the patient's Delete patient section, that asks, “Are you really
+  sure you want to delete this?” and states the consequence. There are no
+  modal dialogs.
+- A patient's name and patient number can be edited on their Details tab.
+  Notes, search entries, and redactions stay attached through the patient.
+- Saved redactions are created only while reviewing a note. The Redactions
+  screens can change a redaction's replacement but cannot add or delete one.
+  Patient redactions are deleted with their patient; all-patients redactions
+  have no deletion path in this release.
 
 ## Safety invariants
 

@@ -12,15 +12,16 @@ unlocked system. FileVault remains complementary and expected.
 
 ## Data lifecycle
 
-| Material | Retention | Searchable | Egress eligible |
-| --- | --- | --- | --- |
-| Saved source text | Until its reviewed note is deleted | No | Never |
-| Recorded source audio | Encrypted for 30 days after note creation | No | Never |
-| Original aligned transcript | Encrypted for the same 30 days | No | Never |
-| Reviewed note | Until explicit deletion | Yes | Only through the egress gate |
-| Detection provenance | Encrypted with the reviewed note | No | No |
-| Global or patient-specific identifier mapping | Until explicit deletion | No | Never |
-| Operational diagnostics | Content-free and minimal | No | Non-content metadata only |
+| Material                         | Retention                                  | Searchable | Egress eligible              |
+| -------------------------------- | ------------------------------------------ | ---------- | ---------------------------- |
+| Saved source text                | Until its reviewed note is deleted         | No         | Never                        |
+| Recorded source audio            | Encrypted for 30 days after note creation  | No         | Never                        |
+| Original aligned transcript      | Encrypted for the same 30 days             | No         | Never                        |
+| Reviewed note                    | Until explicit deletion                    | Yes        | Only through the egress gate |
+| Detection provenance             | Encrypted with the reviewed note           | No         | No                           |
+| Patient-specific saved redaction | Until its patient is deleted               | No         | Never                        |
+| All-patients saved redaction     | Retained; no deletion path in this release | No         | Never                        |
+| Operational diagnostics          | Content-free and minimal                   | No         | Non-content metadata only    |
 
 Expiry removes source audio, the original aligned transcript, alignment data,
 and any derived temporary files as one operation. Deleting a note removes its

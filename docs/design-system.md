@@ -1,7 +1,7 @@
 # Design System
 
-**Status:** Accepted. Step 1 of the [delivery plan](#delivery-plan) is
-implemented. The welcome page is the reference and does not change.
+**Status:** Implemented. The workspace follows this design system; the welcome
+page is the reference and does not change.
 
 The design system is an HTML library:
 [design-system/index.html](../design-system/index.html). It shows the
@@ -14,7 +14,8 @@ clickable composition of the target screens. Open it with
 | Source                                                      | Holds                                                      |
 | ----------------------------------------------------------- | ---------------------------------------------------------- |
 | [src/styles/tokens.css](../src/styles/tokens.css)           | Every colour, type, space, and shape value, with its use   |
-| [src/styles/components.css](../src/styles/components.css)   | Target components; the app adopts them in steps 2–4        |
+| [src/styles/components.css](../src/styles/components.css)   | Components the app and the library both use                |
+| [src/privacy/components.ts](../src/privacy/components.ts)   | Builders that produce the documented component markup      |
 | [design-system/index.html](../design-system/index.html)     | Principles, token specimens, components, rules, and markup |
 | [design-system/screens.html](../design-system/screens.html) | Clickable screens composed only from those components      |
 | This document                                               | Navigation model, decisions, copy, accessibility, and plan |
@@ -32,22 +33,30 @@ Welcome (unchanged)
 
 App header: [mark] Clinician’s Veil   Patients  Notes  Redactions  Settings   ● On this Mac
 
-Patients                      /patients             searchable table
-  New patient                 /patients/new         page form
-  Patient                     /patients/:id         ribbon + tabs
-    Details                   …/details             editable form, delete patient
-    Notes                     …/notes  (default)    searchable table
-    Redactions                …/redactions          patient redactions table
-    New note / open note      …/notes/new, …/notes/:noteId   review workspace
-Notes (all patients)          /notes                searchable table with Patient column
-Redactions (all patients)     /redactions           global redactions table
-Settings                      /settings             local model
+Patients                      searchable table
+  New patient                 page form
+  Patient                     ribbon + tabs
+    Details                   editable form, delete patient
+    Notes (default)           searchable table
+    Redactions                patient redactions table
+    New note / open note      review workspace
+Notes (all patients)          searchable table with Patient column
+Redactions (all patients)     all-patients redactions table
+Settings                      local model
 ```
+
+Screens are in-app states, not URLs: the desktop window has no back or forward
+control. Tabs are buttons with `role="tab"`; the arrow, Home, and End keys move
+between them.
 
 The breadcrumb shows the path above the page title, for example
 `Patients / Alex Morgan / New note`. The mark in the header returns to the
 welcome page. Opening a note from the all-patients Notes table goes to that
 note inside its patient, so the breadcrumb always leads back to the patient.
+
+Leaving an unsaved review for any other screen, or for the welcome page, shows
+an inline **Discard this session?** confirmation above the workspace. Saving a
+note returns to that patient's Notes tab.
 
 ### Redactions at two scopes
 
@@ -65,9 +74,9 @@ note inside its patient, so the breadcrumb always leads back to the patient.
   when the patient is deleted.
 - **Review saved redactions** remains the per-note opt-out before analysis.
 
-### What changes from today
+### What changed
 
-| Today                                               | Proposed                                                  |
+| Before                                              | Now                                                       |
 | --------------------------------------------------- | --------------------------------------------------------- |
 | Flat nav: Home, Patients, Notes, Mappings, Settings | Header nav plus breadcrumb; patient workspace with tabs   |
 | Patients table only starts notes or deletes         | Row opens the patient; **New note** stays as a row action |
@@ -87,10 +96,13 @@ note inside its patient, so the breadcrumb always leads back to the patient.
 - Signal is only for the focus ring and the active review highlight. Errors use
   danger.
 - There are no shadows. `--shadow-float` is reserved for the anchored selection
-  menu; the existing dialogs and operation overlay use it until step 5 removes
-  them.
-- A new component goes into `src/styles/components.css` and gets a specimen in
-  the library, with its rules, in the same change.
+  menu.
+- A new component goes into `src/styles/components.css` and
+  `src/privacy/components.ts`, and gets a specimen in the library, with its
+  rules, in the same change.
+- Screens build DOM with `h()` from `src/privacy/dom.ts`, which turns every
+  string into a text node. Patient names, titles, and clinical text never pass
+  through `innerHTML`.
 
 ## Decisions
 
@@ -101,8 +113,14 @@ note inside its patient, so the breadcrumb always leads back to the patient.
   Redactions screens. The clinician can edit the replacement text. A mistaken
   redaction keeps applying until it is edited or the clinician chooses
   **Review saved redactions** for a note.
-- Deletion of a patient or note uses the inline confirmation with the same
-  wording as today’s modal. Step 5 updates the note-library intent.
+- Deletion of a patient or note uses an inline confirmation with the wording of
+  the former modal.
+- Because redactions cannot be deleted from the library, a patient's redactions
+  last until the patient is deleted and all-patients redactions have no
+  deletion path. [Privacy and security](architecture/privacy-security.md)
+  records this retention.
+- Search excerpts show placeholders as chips, so full-text search no longer
+  marks matches with brackets.
 - The all-patients Notes page stays, because the welcome page links to it.
 - The About dialog is the one modal and stays on the welcome page.
 
@@ -130,27 +148,13 @@ note inside its patient, so the breadcrumb always leads back to the patient.
 - Reduced motion is respected. The only motion is the welcome mark and the
   activity bar.
 
-## Delivery plan
+## Delivery
 
-Each step is a focused pull request with its own tests.
+The plan shipped in two steps: tokens with the library, then the patient
+workspace, redactions, and in-page flows, with `update_patient`, a `patientId`
+filter on `search_notes`, and replacement-only redaction updates in the Tauri
+adapter. The create and delete redaction commands were removed; note review
+still saves redactions through `save_mapping_from_review`.
 
-1. **Tokens and library.** _Done._ Add `tokens.css`, move `app.css` and
-   `review.css` onto it without behaviour changes, and add `components.css`
-   with the HTML library that renders it.
-2. **Shell and routing.** Import `components.css` into the app. Add the app
-   header, breadcrumb, and hash routes, and split `src/privacy/page.ts` into a
-   router and one module per view. Keep the
-   review workspace logic intact.
-3. **Patient workspace.** Add the patient ribbon, tabs, Details form, and patient
-   Notes table. This needs an `update_patient` command and a `patientId` filter
-   on `search_notes`.
-4. **Redactions.** Rename mappings to redactions in the interface, and add the
-   patient Redactions tab and the all-patients Redactions page with inline
-   editing of the replacement only. Remove the create and delete controls, and
-   drop the `create_*mapping` and `delete_*mapping` commands from the Tauri
-   adapter. Note review keeps saving redactions through
-   `save_mapping_from_review`.
-5. **No overlays.** Replace the add-patient, save-note, and deletion dialogs
-   and the operation overlay, and remove `window.confirm`. Update
-   `specs/encrypted-note-library/intent.md` and `specs/text-review/intent.md`
-   in the same change.
+Follow-up: split the screens in `src/privacy/page.ts` into one module per
+screen. The shared builders already live in `src/privacy/components.ts`.
