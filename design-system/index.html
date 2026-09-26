@@ -157,6 +157,10 @@
               <li>
                 The current destination has <code>aria-current="page"</code>.
               </li>
+              <li>
+                While work runs, the activity bar and status sit in the header,
+                outside the inert page, so Cancel stays reachable.
+              </li>
             </ul>
             <div class="specimen__demo specimen__demo--block">
               <header class="app-header">
@@ -174,7 +178,18 @@
                   </nav>
                   <span class="local-indicator">On this Mac</span>
                 </div>
-                <div class="activity" style="--progress: 60%"></div>
+                <progress class="activity" max="100" value="60"></progress>
+                <div class="activity-status" role="status">
+                  <p>
+                    <strong>Finding named entities · 60%</strong>
+                    <span class="muted"
+                      >Section 3 of 5 · Processing on this Mac</span
+                    >
+                  </p>
+                  <button type="button" class="button button--compact">
+                    Cancel
+                  </button>
+                </div>
               </header>
             </div>
           </article>
@@ -187,7 +202,8 @@
                 beside it in mono.
               </li>
               <li>
-                Each tab is a link to its own route, so back and forward work.
+                Tabs are buttons with <code>role="tab"</code>. Arrow, Home and
+                End keys move between them.
               </li>
               <li>The ribbon holds the page’s one primary action.</li>
             </ul>
@@ -258,7 +274,7 @@
             </ul>
             <div class="specimen__demo">
               <button type="button" class="button button--primary">
-                Save changes
+                Add patient
               </button>
               <button type="button" class="button">Copy reviewed text</button>
               <button type="button" class="button button--quiet">Cancel</button>

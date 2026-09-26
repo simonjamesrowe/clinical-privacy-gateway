@@ -138,12 +138,14 @@ button {
   padding: 5rem 0;
 }
 
-.eyebrow {
+.welcome .eyebrow,
+#about-dialog .eyebrow {
   margin: 0 0 1.25rem;
   color: var(--color-accent);
   font-family: var(--font-mono);
   font-size: 0.7rem;
   font-weight: 600;
+  line-height: normal;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }

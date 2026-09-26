@@ -11,6 +11,10 @@
   white-space: nowrap;
 }
 
+[tabindex="-1"]:focus {
+  outline: none;
+}
+
 /* Type roles */
 .eyebrow {
   color: var(--color-accent);
@@ -38,7 +42,7 @@
 .app-header {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 10;
   border-bottom: 1px solid var(--color-line);
   background: var(--color-paper);
 }
@@ -47,7 +51,7 @@
   align-items: center;
   gap: var(--space-6);
   max-width: var(--content-width);
-  height: 3.25rem;
+  height: var(--header-height);
   margin: 0 auto;
   padding: 0 var(--space-6);
 }
@@ -55,9 +59,13 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  padding: 0;
+  border: 0;
   color: var(--color-ink);
+  background: none;
   font: 400 var(--text-lg) / 1 var(--font-display);
   text-decoration: none;
+  cursor: pointer;
 }
 .brand-mark {
   display: grid;
@@ -85,19 +93,21 @@
   display: flex;
   gap: var(--space-1);
 }
-.primary-nav a {
+.primary-nav :is(a, button) {
   padding: var(--space-2) var(--space-3);
+  border: 0;
   border-radius: var(--radius);
   color: var(--color-ink-muted);
-  font-size: var(--text-sm);
-  font-weight: 500;
+  background: none;
+  font: 500 var(--text-sm) / 1.2 var(--font-body);
   text-decoration: none;
+  cursor: pointer;
 }
-.primary-nav a:hover {
+.primary-nav :is(a, button):hover:not(:disabled) {
   color: var(--color-ink);
   background: var(--color-surface);
 }
-.primary-nav a[aria-current="page"] {
+.primary-nav :is(a, button)[aria-current="page"] {
   color: var(--color-accent-strong);
   background: var(--color-accent-soft);
 }
@@ -119,14 +129,54 @@
   content: "";
 }
 
-/* Activity bar: replaces the operation overlay */
+/* Activity bar and status: replace the operation overlay. They sit in the
+   sticky header, outside the inert page, so Cancel stays reachable. */
 .activity {
+  display: block;
+  width: 100%;
   height: 3px;
-  background: linear-gradient(
-    90deg,
-    var(--color-accent) var(--progress, 40%),
-    transparent 0
-  );
+  border: 0;
+  background: transparent;
+  accent-color: var(--color-accent);
+  appearance: none;
+}
+.activity::-webkit-progress-bar {
+  background: transparent;
+}
+.activity::-webkit-progress-value {
+  background: var(--color-accent);
+}
+.activity::-moz-progress-bar {
+  background: var(--color-accent);
+}
+.activity:indeterminate::-webkit-progress-bar {
+  background: var(--color-accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .activity:indeterminate {
+    animation: activity-pulse 1.4s ease-in-out infinite alternate;
+  }
+}
+@keyframes activity-pulse {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.activity-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: var(--space-2) var(--space-6);
+  font-size: var(--text-sm);
+}
+.activity-status p {
+  margin: 0;
 }
 
 /* Page layout */
@@ -170,6 +220,7 @@
 }
 .page-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
@@ -197,20 +248,21 @@
   gap: var(--space-1);
   margin-bottom: -1px;
 }
-.tabs a {
+.tabs :is(a, button) {
   padding: var(--space-2) var(--space-4);
   border: 1px solid transparent;
   border-bottom: 0;
   border-radius: var(--radius) var(--radius) 0 0;
   color: var(--color-ink-muted);
-  font-size: var(--text-sm);
-  font-weight: 500;
+  background: none;
+  font: 500 var(--text-sm) / 1.5 var(--font-body);
   text-decoration: none;
+  cursor: pointer;
 }
-.tabs a:hover {
+.tabs :is(a, button):hover {
   color: var(--color-ink);
 }
-.tabs a[aria-selected="true"] {
+.tabs :is(a, button)[aria-selected="true"] {
   border-color: var(--color-line-strong);
   color: var(--color-ink);
   background: var(--color-surface);
@@ -408,6 +460,9 @@
   background: var(--color-surface);
   cursor: pointer;
 }
+.data-table td.mono {
+  white-space: nowrap;
+}
 .data-table .actions {
   width: 1%;
   text-align: right;
@@ -422,6 +477,19 @@
 }
 .data-table strong {
   font-weight: 600;
+}
+.row-open {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: 600 var(--text-sm) / 1.4 var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+.row-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .placeholder {
   padding: 0.1rem var(--space-1);
@@ -452,6 +520,7 @@
 }
 .confirm {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);

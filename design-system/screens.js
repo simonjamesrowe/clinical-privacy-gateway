@@ -151,7 +151,7 @@ function details(p) {
     <form class="form-stack">
       <div class="field"><label for="n">Patient name</label><input id="n" value="${esc(p.name)}" autocomplete="off" /></div>
       <div class="field"><label for="r">Patient number <span class="muted">(optional)</span></label><input id="r" value="${esc(p.ref)}" autocomplete="off" /><span class="hint">Your local reference, for example a case number.</span></div>
-      <div class="form-actions"><button type="button" class="button button--primary" disabled>Save changes</button><button type="button" class="button button--quiet" disabled>Undo changes</button></div>
+      <div class="form-actions"><button type="button" class="button" disabled>Save changes</button><button type="button" class="button button--quiet" disabled>Undo changes</button></div>
     </form>
     ${
       confirming === "patient"
