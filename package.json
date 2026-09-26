@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
+    "design-system": "vite --host 127.0.0.1 --port 1420 --open /design-system/",
     "build": "tsc --noEmit && vite build",
     "lint": "eslint . --max-warnings=0",
-    "format:check": "prettier --check package.json package-lock.json tsconfig.json vite.config.ts eslint.config.js index.html src scripts .github/workflows src-tauri/tauri.conf.json src-tauri/capabilities",
+    "format:check": "prettier --check package.json package-lock.json tsconfig.json vite.config.ts eslint.config.js index.html src design-system scripts .github/workflows src-tauri/tauri.conf.json src-tauri/capabilities",
     "test": "vitest run",
     "tauri": "tauri"
   },

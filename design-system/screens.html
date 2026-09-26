@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clinician’s Veil · Screens</title>
+    <link rel="stylesheet" href="../src/styles/tokens.css" />
+    <link rel="stylesheet" href="../src/styles/components.css" />
+    <link rel="stylesheet" href="./library.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="app-header__inner">
+        <a class="brand" href="#/patients"
+          ><span class="brand-mark" aria-hidden="true"
+            ><span></span><span></span></span
+          ><span>Clinician’s Veil</span></a
+        >
+        <nav class="primary-nav" aria-label="Application">
+          <a href="#/patients" data-nav="patients">Patients</a>
+          <a href="#/notes" data-nav="notes">Notes</a>
+          <a href="#/redactions" data-nav="redactions">Redactions</a>
+          <a href="#/settings" data-nav="settings">Settings</a>
+        </nav>
+        <span class="local-indicator">On this Mac</span>
+      </div>
+      <div class="activity" data-activity hidden></div>
+    </header>
+    <main class="page" id="view"></main>
+    <script src="./screens.js"></script>
+  </body>
+</html>

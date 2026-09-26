@@ -14,9 +14,12 @@ the system. Then follow the relevant architecture branch:
 - **Persistence or retrieval:** read
   [storage and search](docs/architecture/storage-search.md) before changing
   SQLite, encryption, audio retention, indexing, or search.
-- **Screens, styles, or interface copy:** read
-  [the design system](docs/design-system.md) before changing navigation,
-  layout, tokens, components, or wording.
+- **Screens, styles, or interface copy:** open
+  [the design-system library](design-system/index.html) and read
+  [its rules](docs/design-system.md) before changing navigation, layout,
+  tokens, components, or wording. Run `npm run design-system` to view it.
+  Build screens only from `src/styles/tokens.css` and
+  `src/styles/components.css`.
 - **Desktop or Apple integration:** read
   [native integration](docs/architecture/native-integration.md) before changing
   Tauri commands, capabilities, WKWebView, Swift, SpeechAnalyzer, or packaging.

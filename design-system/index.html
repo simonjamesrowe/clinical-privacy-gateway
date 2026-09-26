@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clinician’s Veil · Design system</title>
+    <link rel="stylesheet" href="../src/styles/tokens.css" />
+    <link rel="stylesheet" href="../src/styles/components.css" />
+    <link rel="stylesheet" href="./library.css" />
+  </head>
+  <body>
+    <div class="library">
+      <nav class="library-nav" aria-label="Design system">
+        <a class="brand" href="#overview"
+          ><span class="brand-mark" aria-hidden="true"
+            ><span></span><span></span></span
+          ><span>Design system</span></a
+        >
+        <ol>
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#colour">Colour</a></li>
+          <li><a href="#type">Type</a></li>
+          <li><a href="#space">Space and shape</a></li>
+          <li><a href="#navigation">Navigation</a></li>
+          <li><a href="#actions">Buttons</a></li>
+          <li><a href="#forms">Fields and search</a></li>
+          <li><a href="#tables">Tables</a></li>
+          <li><a href="#feedback">Feedback</a></li>
+          <li><a href="#review">Review</a></li>
+          <li><a href="#screens">Screens</a></li>
+        </ol>
+      </nav>
+
+      <main class="library-main">
+        <section id="overview">
+          <p class="eyebrow">Clinician’s Veil</p>
+          <h1 class="page-title">Design system</h1>
+          <p class="library-lede">
+            The visual reference for the patient-centred interface. Tokens come
+            from <code>src/styles/tokens.css</code> and components from
+            <code>src/styles/components.css</code>, so this page shows exactly
+            what the app uses. Rules, decisions and the delivery plan live in
+            <a href="../docs/design-system.md">docs/design-system.md</a>. All
+            content is synthetic.
+          </p>
+          <ul class="principles">
+            <li>
+              <strong>The patient is the centre</strong>Open a patient, then
+              work in their Details, Notes and Redactions tabs.
+            </li>
+            <li>
+              <strong>One level of navigation</strong>Header destinations, one
+              row of patient tabs, nothing deeper.
+            </li>
+            <li>
+              <strong>No modals or overlays</strong>Forms are pages, and
+              confirmations and edits expand inline.
+            </li>
+            <li>
+              <strong>Two scopes, one component</strong>Notes and redactions use
+              the same table for all patients and for one patient.
+            </li>
+            <li>
+              <strong>One primary action per view</strong>Only one teal button
+              is on screen at a time.
+            </li>
+            <li>
+              <strong>State is text as well as colour</strong>Yellow means
+              pending and green means decided, always with a label.
+            </li>
+            <li>
+              <strong>Local, visibly</strong>“On this Mac” stays in the header
+              on every workspace screen.
+            </li>
+          </ul>
+        </section>
+
+        <section class="library-section" id="colour">
+          <header>
+            <p class="eyebrow">Tokens</p>
+            <h2 class="section-title">Colour</h2>
+            <p class="muted">
+              Signal is only for focus and the active review item. Errors use
+              danger.
+            </p>
+          </header>
+          <div data-colours data-token-target></div>
+        </section>
+
+        <section class="library-section" id="type">
+          <header>
+            <p class="eyebrow">Tokens</p>
+            <h2 class="section-title">Type</h2>
+            <p class="muted">
+              Display is for one page title per screen. Section headings use the
+              body face at 600. Mono is for labels and data.
+            </p>
+          </header>
+          <div class="type-specimen">
+            <div>
+              <code class="mono">.page-title</code>
+              <p class="page-title">Alex Morgan</p>
+            </div>
+            <div>
+              <code class="mono">.section-title</code>
+              <p class="section-title">Delete patient</p>
+            </div>
+            <div>
+              <code class="mono">.eyebrow</code>
+              <p class="eyebrow">Patient library</p>
+            </div>
+            <div>
+              <code class="mono">body</code>
+              <p>
+                Removes this patient, their notes and their redactions from this
+                Mac.
+              </p>
+            </div>
+            <div>
+              <code class="mono">.muted</code>
+              <p class="muted">
+                Your local reference, for example a case number.
+              </p>
+            </div>
+            <div>
+              <code class="mono">.mono</code>
+              <p class="mono">24 Sep 2026 · 3 of 12 · SYN-2048</p>
+            </div>
+          </div>
+          <div class="token-rows" data-fonts data-token-target></div>
+          <div class="token-rows" data-sizes data-token-target></div>
+        </section>
+
+        <section class="library-section" id="space">
+          <header>
+            <p class="eyebrow">Tokens</p>
+            <h2 class="section-title">Space and shape</h2>
+            <p class="muted">
+              A 4 px spacing base, one radius, and two control heights. There
+              are no shadows except on the anchored selection menu.
+            </p>
+          </header>
+          <div class="token-rows" data-space data-token-target></div>
+          <div class="token-rows" data-shape data-token-target></div>
+        </section>
+
+        <section class="library-section" id="navigation">
+          <header>
+            <p class="eyebrow">Components</p>
+            <h2 class="section-title">Navigation</h2>
+          </header>
+
+          <article class="specimen">
+            <h3>App header</h3>
+            <ul class="specimen__rules">
+              <li>Sticky. The mark returns to the welcome page.</li>
+              <li>
+                The current destination has <code>aria-current="page"</code>.
+              </li>
+            </ul>
+            <div class="specimen__demo specimen__demo--block">
+              <header class="app-header">
+                <div class="app-header__inner">
+                  <a class="brand" href="#navigation"
+                    ><span class="brand-mark" aria-hidden="true"
+                      ><span></span><span></span></span
+                    ><span>Clinician’s Veil</span></a
+                  >
+                  <nav class="primary-nav" aria-label="Application">
+                    <a href="#navigation" aria-current="page">Patients</a>
+                    <a href="#navigation">Notes</a>
+                    <a href="#navigation">Redactions</a>
+                    <a href="#navigation">Settings</a>
+                  </nav>
+                  <span class="local-indicator">On this Mac</span>
+                </div>
+                <div class="activity" style="--progress: 60%"></div>
+              </header>
+            </div>
+          </article>
+
+          <article class="specimen">
+            <h3>Breadcrumb, patient ribbon and tabs</h3>
+            <ul class="specimen__rules">
+              <li>
+                The patient name is the page title. The patient number sits
+                beside it in mono.
+              </li>
+              <li>
+                Each tab is a link to its own route, so back and forward work.
+              </li>
+              <li>The ribbon holds the page’s one primary action.</li>
+            </ul>
+            <div class="specimen__demo specimen__demo--block">
+              <ol class="breadcrumb" aria-label="Breadcrumb">
+                <li><a href="#navigation">Patients</a></li>
+                <li><span aria-current="page">Alex Morgan</span></li>
+              </ol>
+              <div>
+                <section class="patient-ribbon">
+                  <header class="page-header">
+                    <div>
+                      <p class="eyebrow">Patient</p>
+                      <h1 class="page-title">
+                        Alex Morgan<span class="reference">SYN-2048</span>
+                      </h1>
+                    </div>
+                    <div class="page-actions">
+                      <a class="button button--primary" href="#navigation"
+                        >New note</a
+                      >
+                    </div>
+                  </header>
+                  <nav
+                    class="tabs"
+                    role="tablist"
+                    aria-label="Patient sections"
+                  >
+                    <a role="tab" href="#navigation" aria-selected="false"
+                      >Details</a
+                    >
+                    <a role="tab" href="#navigation" aria-selected="true"
+                      >Notes<span class="count">3</span></a
+                    >
+                    <a role="tab" href="#navigation" aria-selected="false"
+                      >Redactions<span class="count">2</span></a
+                    >
+                  </nav>
+                </section>
+                <section class="tab-panel" role="tabpanel">
+                  <p class="muted">Tab content sits on the surface panel.</p>
+                </section>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="library-section" id="actions">
+          <header>
+            <p class="eyebrow">Components</p>
+            <h2 class="section-title">Buttons</h2>
+          </header>
+          <article class="specimen">
+            <h3>Intents and sizes</h3>
+            <ul class="specimen__rules">
+              <li>Primary appears once per view. Secondary is the default.</li>
+              <li>
+                Quiet is for low-emphasis actions such as Cancel and Edit.
+              </li>
+              <li>
+                Danger-quiet starts a deletion. Danger confirms it inline.
+              </li>
+              <li>Compact is for table rows.</li>
+              <li>
+                Labels name the outcome, for example Save changes or Delete
+                note.
+              </li>
+            </ul>
+            <div class="specimen__demo">
+              <button type="button" class="button button--primary">
+                Save changes
+              </button>
+              <button type="button" class="button">Copy reviewed text</button>
+              <button type="button" class="button button--quiet">Cancel</button>
+              <button type="button" class="button button--danger-quiet">
+                Delete patient…
+              </button>
+              <button type="button" class="button button--danger">
+                Delete patient
+              </button>
+              <button type="button" class="button button--compact">Edit</button>
+              <button type="button" class="button button--primary" disabled>
+                Save note
+              </button>
+            </div>
+          </article>
+        </section>
+
+        <section class="library-section" id="forms">
+          <header>
+            <p class="eyebrow">Components</p>
+            <h2 class="section-title">Fields and search</h2>
+          </header>
+          <article class="specimen">
+            <h3>Field</h3>
+            <ul class="specimen__rules">
+              <li>The label is above the input. A hint or error goes below.</li>
+              <li>
+                Errors set <code>aria-invalid</code> and are referenced by
+                <code>aria-describedby</code>. They never contain clinical text.
+              </li>
+            </ul>
+            <div class="specimen__demo">
+              <div class="field">
+                <label for="demo-name">Patient name</label>
+                <input id="demo-name" value="Alex Morgan" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="demo-number"
+                  >Patient number <span class="muted">(optional)</span></label
+                >
+                <input
+                  id="demo-number"
+                  autocomplete="off"
+                  aria-describedby="demo-number-hint"
+                />
+                <span class="hint" id="demo-number-hint"
+                  >Your local reference, for example a case number.</span
+                >
+              </div>
+              <div class="field">
+                <label for="demo-title">Note title</label>
+                <input
+                  id="demo-title"
+                  aria-invalid="true"
+                  aria-describedby="demo-title-error"
+                />
+                <span class="error" id="demo-title-error"
+                  >Add a title to save this note.</span
+                >
+              </div>
+            </div>
+          </article>
+          <article class="specimen">
+            <h3>Search</h3>
+            <ul class="specimen__rules">
+              <li>
+                The input is joined to a secondary Search button with a
+                magnifying-glass icon. Enter or the button runs the search.
+              </li>
+              <li>
+                The status line gives the match count and the query, with Clear
+                search.
+              </li>
+            </ul>
+            <div class="specimen__demo specimen__demo--block">
+              <div class="table-toolbar">
+                <form class="search" role="search" onsubmit="return false;">
+                  <label class="visually-hidden" for="demo-search"
+                    >Search notes</label
+                  >
+                  <input
+                    id="demo-search"
+                    type="search"
+                    value="sleep"
+                    placeholder="Search titles and reviewed text"
+                    autocomplete="off"
+                  />
+                  <button class="button search__button">
+                    <svg
+                      aria-hidden="true"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                    >
+                      <circle cx="6.75" cy="6.75" r="4.75" />
+                      <path d="m10.4 10.4 3.85 3.85" />
+                    </svg>
+                    Search
+                  </button>
+                </form>
+                <span class="meta muted" role="status"
+                  >1 of 3 notes match “sleep” ·
+                  <button type="button" class="link-button">
+                    Clear search
+                  </button></span
+                >
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="library-section" id="tables">
+          <header>
+            <p class="eyebrow">Components</p>
+            <h2 class="section-title">Tables</h2>
+          </header>
+          <article class="specimen">
+            <h3>Data table with inline confirmation</h3>
+            <ul class="specimen__rules">
+              <li>
+                The whole row opens the item. Actions are right-aligned and
+                compact.
+              </li>
+              <li>
+                Delete expands a confirmation in place with the question, the
+                consequence, Cancel and a danger button. Focus moves to Cancel.
+              </li>
+              <li>
+                The patient scope drops the Patient column. Nothing else
+                changes.
+              </li>
+            </ul>
+            <div class="specimen__demo specimen__demo--block">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Reviewed text</th>
+                    <th>Saved</th>
+                    <th><span class="visually-hidden">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="row-link">
+                    <td><strong>Sleep review</strong></td>
+                    <td class="excerpt">
+                      <span class="placeholder">[PERSON_1]</span> reported
+                      improved sleep.
+                    </td>
+                    <td class="mono">24 Sep 2026</td>
+                    <td class="actions">
+                      <button
+                        type="button"
+                        class="button button--compact button--danger-quiet"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                  <tr class="confirm-row">
+                    <td colspan="4">
+                      <div class="confirm" role="alert">
+                        <div>
+                          <strong>Delete this note?</strong> Are you really sure
+                          you want to delete this?
+                          <span class="muted"
+                            >Its original text, reviewed text and review record
+                            will be deleted.</span
+                          >
+                        </div>
+                        <div class="page-actions">
+                          <button type="button" class="button button--compact">
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            class="button button--compact button--danger"
+                          >
+                            Delete note
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+          <article class="specimen">
+            <h3>Redactions table with inline edit</h3>
+            <ul class="specimen__rules">
+              <li>
+                Redactions are created during note review and are never deleted
+                here.
+              </li>
+              <li>
+                Edit changes only the replacement. Save is secondary, Cancel is
+                quiet, and Escape cancels.
+              </li>
+              <li>
+                A patient redaction that overrides an all-patients one shows a
+                badge.
+              </li>
+            </ul>
+            <div class="specimen__demo specimen__demo--block">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Identifier</th>
+                    <th>Replaced with</th>
+                    <th>Category</th>
+                    <th><span class="visually-hidden">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="edit-row">
+                    <td><strong>Alex Morgan</strong></td>
+                    <td>
+                      <label class="visually-hidden" for="demo-replacement"
+                        >Replace Alex Morgan with</label
+                      >
+                      <input
+                        id="demo-replacement"
+                        class="mono inline-input"
+                        value="[CLIENT]"
+                        spellcheck="false"
+                      />
+                    </td>
+                    <td>Person</td>
+                    <td class="actions">
+                      <button
+                        type="button"
+                        class="button button--compact button--quiet"
+                      >
+                        Cancel
+                      </button>
+                      <button type="button" class="button button--compact">
+                        Save
+                      </button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <strong>Bristol</strong>
+                      <span class="badge">Overrides all-patients</span>
+                    </td>
+                    <td><span class="placeholder">[CITY]</span></td>
+                    <td>Location</td>
+                    <td class="actions">
+                      <button type="button" class="button button--compact">
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
+        <section class="library-section" id="feedback">
+          <header>
+            <p class="eyebrow">Components</p>
+            <h2 class="section-title">Feedback</h2>
+          </header>
+          <article class="specimen">
+            <h3>Badges, notices and empty state</h3>
+            <ul class="specimen__rules">
+              <li>
+                Badges always carry text. Pending and decided match the review
+                states.
+              </li>
+              <li>
+                Notices explain scope or report a page-level error with
+                <code>role="alert"</code>.
+              </li>
+              <li>
+                An empty state gives one sentence of direction and the action
+                that fills it.
+              </li>
+            </ul>
+            <div class="specimen__demo specimen__demo--block">
+              <p>
+                <span class="badge">Overrides all-patients</span>
+                <span class="badge badge--pending">2 left</span>
+                <span class="badge badge--decided">Accepted</span>
+                <span class="placeholder">[PERSON_1]</span>
+              </p>
+              <p class="notice">
+                Applied automatically to new notes for Alex Morgan.
+              </p>
+              <p class="notice notice--danger" role="alert">
+                The note could not be saved. Try again.
+              </p>
+              <div class="empty-state">
+                <p class="section-title">No notes yet</p>
+                <p class="muted">
+                  Start a note to de-identify text for this patient.
+                </p>
+                <button type="button" class="button button--primary">
+                  New note
+                </button>
+              </div>
+              <div class="danger-zone">
+                <div>
+                  <p class="section-title">Delete patient</p>
+                  <p class="muted">
+                    Removes this patient, their notes and their redactions from
+                    this Mac.
+                  </p>
+                </div>
+                <button type="button" class="button button--danger-quiet">
+                  Delete patient…
+                </button>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="library-section" id="review">
+          <header>
+            <p class="eyebrow">Components</p>
+            <h2 class="section-title">Review</h2>
+          </header>
+          <article class="specimen">
+            <h3>Stepper, review card, marks and save bar</h3>
+            <ul class="specimen__rules">
+              <li>
+                Pending is yellow and decided is green, and both have a text
+                label. Green is a decision, not a privacy guarantee.
+              </li>
+              <li>
+                Saving and copying stay disabled until the final check passes.
+              </li>
+            </ul>
+            <div class="specimen__demo specimen__demo--block">
+              <ol class="stepper" aria-label="Review stages">
+                <li data-state="complete">1 · Analyse</li>
+                <li data-state="current" aria-current="step">
+                  2 · Review <span class="badge badge--pending">2 left</span>
+                </li>
+                <li>3 · Final check</li>
+                <li>4 · Save</li>
+              </ol>
+              <article class="review-card">
+                <div>
+                  <p class="eyebrow">Person · 2 occurrences · To review</p>
+                  <p class="section-title">Alex Morgan</p>
+                  <p class="muted">Found by: local model, saved redaction.</p>
+                </div>
+                <div class="form-stack">
+                  <div class="field">
+                    <label for="demo-placeholder">Replace with</label>
+                    <input
+                      id="demo-placeholder"
+                      class="mono"
+                      value="[CLIENT]"
+                    />
+                  </div>
+                  <div class="page-actions">
+                    <button type="button" class="button button--primary">
+                      Accept
+                    </button>
+                    <button type="button" class="button">Keep</button>
+                    <button type="button" class="button">Remove</button>
+                  </div>
+                </div>
+              </article>
+              <div class="split">
+                <section class="pane">
+                  <h3>Source text</h3>
+                  <mark>Alex Morgan</mark> attended a review in
+                  <mark data-decided>Bristol</mark>.
+                </section>
+                <section class="pane">
+                  <h3>Proposed result</h3>
+                  <mark>[CLIENT]</mark> attended a review in
+                  <mark data-decided>[CITY]</mark>.
+                </section>
+              </div>
+              <section class="save-bar" aria-label="Save reviewed note">
+                <div class="field">
+                  <label for="demo-save-title">Note title</label>
+                  <input id="demo-save-title" value="Sleep review" />
+                  <span class="hint"
+                    >Saving is available after the final check.</span
+                  >
+                </div>
+                <div class="page-actions">
+                  <button type="button" class="button" disabled>
+                    Copy reviewed text
+                  </button>
+                  <button type="button" class="button" disabled>
+                    Save note
+                  </button>
+                </div>
+              </section>
+            </div>
+          </article>
+        </section>
+
+        <section class="library-section" id="screens">
+          <header>
+            <p class="eyebrow">Composition</p>
+            <h2 class="section-title">Screens</h2>
+            <p class="muted">
+              A clickable composition of the target screens, built from the same
+              components.
+              <a href="./screens.html">Open full size</a>.
+            </p>
+          </header>
+          <iframe
+            class="screens-frame"
+            src="./screens.html#/patients/1/notes"
+            title="Clickable screens"
+          ></iframe>
+        </section>
+      </main>
+    </div>
+    <script src="./library.js"></script>
+  </body>
+</html>
