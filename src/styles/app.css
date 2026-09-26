@@ -1,8 +1,16 @@
+@import "./tokens.css";
+
+/* The welcome page and About dialog are the reference composition. They use
+   tokens where one matches and keep their bespoke display values. */
 :root {
-  color: #122426;
-  background: #dfe7e2;
-  font-family: "Avenir Next", Avenir, "Helvetica Neue", sans-serif;
+  color: var(--color-ink);
+  background: var(--color-paper);
+  font-family: var(--font-body);
   font-synthesis: none;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 * {
@@ -20,10 +28,10 @@ button {
 }
 
 .welcome-start {
-  border: 1px solid #006f70;
-  border-radius: 6px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius);
   padding: 0.85rem 1.2rem;
-  background: #006f70;
+  background: var(--color-accent);
   color: white;
   cursor: pointer;
 }
@@ -31,7 +39,7 @@ button {
 .welcome-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 .welcome-start--secondary {
@@ -41,11 +49,6 @@ button {
 }
 
 .welcome {
-  --ink: #122426;
-  --paper: #dfe7e2;
-  --mist: #b9cbc3;
-  --verdigris: #006f70;
-  --signal: #c86c42;
   position: relative;
   display: grid;
   grid-template-columns: minmax(2rem, 1fr) minmax(0, 760px) minmax(2rem, 1fr);
@@ -64,7 +67,7 @@ button {
       rgb(18 36 38 / 4%) 0 1px,
       transparent 1px 8px
     ),
-    var(--paper);
+    var(--color-paper);
 }
 
 .welcome::before {
@@ -87,8 +90,8 @@ button {
 
 .welcome__ledger {
   padding-top: 1.7rem;
-  color: var(--verdigris);
-  font-family: "SF Mono", Menlo, monospace;
+  color: var(--color-accent);
+  font-family: var(--font-mono);
   font-size: 0.66rem;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -107,7 +110,7 @@ button {
 .veil-mark span,
 .about-mark span {
   grid-area: 1 / 1;
-  border: 1px solid var(--verdigris);
+  border: 1px solid var(--color-accent);
   border-radius: 48% 52% 45% 55% / 60% 42% 58% 40%;
 }
 
@@ -120,12 +123,12 @@ button {
   width: 72%;
   height: 94%;
   transform: rotate(31deg);
-  border-color: var(--signal);
+  border-color: var(--color-signal);
 }
 .veil-mark span:nth-child(3) {
   width: 38%;
   height: 38%;
-  background: var(--paper);
+  background: var(--color-paper);
 }
 
 .welcome__copy {
@@ -137,8 +140,8 @@ button {
 
 .eyebrow {
   margin: 0 0 1.25rem;
-  color: var(--verdigris);
-  font-family: "SF Mono", Menlo, monospace;
+  color: var(--color-accent);
+  font-family: var(--font-mono);
   font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -151,21 +154,17 @@ p {
   margin-top: 0;
 }
 
-h1 {
+.welcome h1 {
   margin-bottom: 1.5rem;
-  font-family:
-    Iowan Old Style,
-    Palatino,
-    "Palatino Linotype",
-    serif;
+  font-family: var(--font-display);
   font-size: clamp(3.5rem, 8vw, 6.5rem);
   font-weight: 400;
   letter-spacing: -0.065em;
   line-height: 0.88;
 }
 
-h1 em {
-  color: var(--verdigris);
+.welcome h1 em {
+  color: var(--color-accent);
   font-style: italic;
 }
 
@@ -178,8 +177,8 @@ h1 em {
 .welcome__footer {
   align-items: center;
   padding-bottom: 1.7rem;
-  color: #496062;
-  font-family: "SF Mono", Menlo, monospace;
+  color: var(--color-ink-muted);
+  font-family: var(--font-mono);
   font-size: 0.68rem;
 }
 
@@ -187,26 +186,31 @@ h1 em {
   padding: 0;
   border: 0;
   border-bottom: 1px solid currentColor;
-  color: var(--ink);
+  color: var(--color-ink);
   background: transparent;
   cursor: pointer;
 }
 
 .about-link:hover {
-  color: var(--verdigris);
+  color: var(--color-accent);
 }
 
 :focus-visible {
-  outline: 3px solid var(--signal);
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.welcome :focus-visible,
+#about-dialog :focus-visible {
   outline-offset: 4px;
 }
 
 dialog {
   width: min(440px, calc(100vw - 2rem));
-  border: 1px solid #87a79c;
+  border: 1px solid var(--color-line-strong);
   border-radius: 0;
-  color: #122426;
-  background: #edf1ed;
+  color: var(--color-ink);
+  background: var(--color-surface);
   box-shadow: 0 24px 80px rgb(18 36 38 / 25%);
   padding: 1.6rem;
 }
@@ -244,35 +248,32 @@ dialog::backdrop {
   width: 72%;
   height: 94%;
   transform: rotate(31deg);
-  border-color: #c86c42;
+  border-color: var(--color-signal);
 }
 .about-mark span:nth-child(3) {
   width: 38%;
   height: 38%;
-  background: #edf1ed;
+  background: var(--color-surface);
 }
-h2 {
+#about-dialog h2 {
   margin-bottom: 0.35rem;
-  font-family:
-    Iowan Old Style,
-    Palatino,
-    serif;
+  font-family: var(--font-display);
   font-size: 2.1rem;
   font-weight: 400;
   letter-spacing: -0.04em;
 }
 .about-dialog__summary {
   margin-bottom: 1.5rem;
-  color: #496062;
+  color: var(--color-ink-muted);
 }
 .build-line,
 .about-dialog__licence {
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 .about-dialog__notice {
-  border-left: 2px solid #c86c42;
+  border-left: 2px solid var(--color-signal);
   margin: 1.5rem 0;
   padding-left: 0.8rem;
   font-size: 0.84rem;
@@ -280,7 +281,7 @@ h2 {
 }
 .about-dialog__licence {
   margin-bottom: 0;
-  color: #496062;
+  color: var(--color-ink-muted);
 }
 
 @media (max-width: 680px) {
