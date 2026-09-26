@@ -116,12 +116,9 @@ pub fn run() {
             privacy::list_patient_mappings,
             privacy::list_patients,
             privacy::create_patient,
-            privacy::create_mapping,
+            privacy::update_patient,
             privacy::update_mapping,
-            privacy::delete_mapping,
-            privacy::create_patient_mapping,
             privacy::update_patient_mapping,
-            privacy::delete_patient_mapping,
             privacy::save_mapping_from_review
         ])
         .setup(|app| {

@@ -15,7 +15,10 @@ const KEYCHAIN_SERVICE: &str = "dev.simonrowe.cliniciansveil";
 const KEYCHAIN_ACCOUNT: &str = "encrypted-note-library-key";
 const STORAGE_ERROR: &str =
     "The encrypted note library is unavailable. Reopen the app and try again.";
-const STORAGE_CONFLICT: &str = "A mapping with that phrase and category already exists.";
+const STORAGE_CONFLICT: &str = "A redaction with that phrase and category already exists.";
+const PATIENT_CONFLICT: &str = "A patient with that name already exists.";
+const PATIENT_UNAVAILABLE: &str = "This patient is no longer available.";
+const REDACTION_UNAVAILABLE: &str = "This redaction is no longer available.";
 
 #[derive(Clone)]
 pub struct Storage {
@@ -28,6 +31,7 @@ pub struct Storage {
 #[serde(rename_all = "camelCase")]
 pub struct NoteSummary {
     pub id: i64,
+    pub patient_id: Option<i64>,
     pub title: String,
     pub patient_name: Option<String>,
     pub patient_reference: Option<String>,
@@ -40,7 +44,15 @@ pub struct PatientView {
     pub id: i64,
     pub name: String,
     pub patient_reference: Option<String>,
+    pub note_count: i64,
+    pub redaction_count: i64,
 }
+
+/// Patient columns in the order `patient_view` reads them. The counts drive the
+/// patient table and the patient workspace tab labels.
+const PATIENT_COLUMNS: &str = "patients.id, patients.name, patients.patient_reference,
+    (SELECT COUNT(*) FROM notes WHERE notes.patient_id = patients.id),
+    (SELECT COUNT(*) FROM patient_mappings WHERE patient_mappings.patient_id = patients.id)";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -283,24 +295,36 @@ impl Storage {
         })
     }
 
-    pub fn search_notes(&self, query: &str) -> PrivacyResult<Vec<NoteSummary>> {
+    /// Searches reviewed notes, optionally within one patient. The patient
+    /// reference comes from the patient record so an edited patient number is
+    /// shown on every note.
+    pub fn search_notes(
+        &self,
+        query: &str,
+        patient_id: Option<i64>,
+    ) -> PrivacyResult<Vec<NoteSummary>> {
         self.with_connection(|connection| {
             let mut results = Vec::new();
             if let Some(search) = fts_query(query) {
                 let mut statement = connection.prepare(
-                    "SELECT notes.id, notes.title, notes.patient_reference, notes.created_at,
-                       snippet(note_search, 2, '[', ']', '…', 12), patients.name
+                    "SELECT notes.id, notes.title, COALESCE(patients.patient_reference, notes.patient_reference), notes.created_at,
+                       snippet(note_search, 2, '', '', '…', 12), patients.name, notes.patient_id
                      FROM note_search JOIN notes ON notes.id = note_search.rowid
                      LEFT JOIN patients ON patients.id = notes.patient_id
-                     WHERE note_search MATCH ?1 ORDER BY bm25(note_search), notes.id DESC"
+                     WHERE note_search MATCH ?1 AND (?2 IS NULL OR notes.patient_id = ?2)
+                     ORDER BY bm25(note_search), notes.id DESC"
                 ).map_err(|_| STORAGE_ERROR)?;
-                let rows = statement.query_map([search], note_summary).map_err(|_| STORAGE_ERROR)?;
+                let rows = statement.query_map(params![search, patient_id], note_summary).map_err(|_| STORAGE_ERROR)?;
                 for row in rows { results.push(row.map_err(|_| STORAGE_ERROR)?); }
             } else {
                 let mut statement = connection.prepare(
-                    "SELECT notes.id, notes.title, notes.patient_reference, notes.created_at, substr(notes.reviewed_text, 1, 180), patients.name FROM notes LEFT JOIN patients ON patients.id = notes.patient_id ORDER BY notes.id DESC"
+                    "SELECT notes.id, notes.title, COALESCE(patients.patient_reference, notes.patient_reference), notes.created_at,
+                       substr(notes.reviewed_text, 1, 180), patients.name, notes.patient_id
+                     FROM notes LEFT JOIN patients ON patients.id = notes.patient_id
+                     WHERE ?1 IS NULL OR notes.patient_id = ?1
+                     ORDER BY notes.id DESC"
                 ).map_err(|_| STORAGE_ERROR)?;
-                let rows = statement.query_map([], note_summary).map_err(|_| STORAGE_ERROR)?;
+                let rows = statement.query_map(params![patient_id], note_summary).map_err(|_| STORAGE_ERROR)?;
                 for row in rows { results.push(row.map_err(|_| STORAGE_ERROR)?); }
             }
             Ok(results)
@@ -375,9 +399,9 @@ impl Storage {
     pub fn patients(&self) -> PrivacyResult<Vec<PatientView>> {
         self.with_connection(|connection| {
             let mut statement = connection
-                .prepare(
-                    "SELECT id, name, patient_reference FROM patients ORDER BY normalized_name",
-                )
+                .prepare(&format!(
+                    "SELECT {PATIENT_COLUMNS} FROM patients ORDER BY normalized_name"
+                ))
                 .map_err(|_| STORAGE_ERROR)?;
             let rows = statement
                 .query_map([], patient_view)
@@ -391,54 +415,98 @@ impl Storage {
         name: &str,
         patient_reference: Option<&str>,
     ) -> PrivacyResult<PatientView> {
-        let name = normalise_required(
-            name,
-            160,
-            "Enter a patient name.",
-            "Use at most 160 characters for the patient name.",
-        )?;
-        let reference = normalise_optional(
-            patient_reference,
-            128,
-            "Use at most 128 characters for the patient reference.",
-        )?;
+        let (name, reference) = patient_fields(name, patient_reference)?;
         let timestamp = now()?;
         self.with_connection(|connection| {
-            connection.execute("INSERT INTO patients(name, normalized_name, patient_reference, created_at) VALUES (?1, ?2, ?3, ?4)", params![name, name.chars().flat_map(char::to_lowercase).collect::<String>(), reference, timestamp]).map_err(|error| if is_unique(&error) { "A patient with that name already exists." } else { STORAGE_ERROR })?;
-            connection.query_row("SELECT id, name, patient_reference FROM patients WHERE id = ?1", [connection.last_insert_rowid()], patient_view).map_err(|_| STORAGE_ERROR)
-        })
-    }
-    pub fn patient(&self, id: i64) -> PrivacyResult<PatientView> {
-        self.with_connection(|connection| {
-            connection
-                .query_row(
-                    "SELECT id, name, patient_reference FROM patients WHERE id = ?1",
-                    [id],
-                    patient_view,
-                )
-                .optional()
-                .map_err(|_| STORAGE_ERROR)?
-                .ok_or("This patient is no longer available.")
+            connection.execute("INSERT INTO patients(name, normalized_name, patient_reference, created_at) VALUES (?1, ?2, ?3, ?4)", params![name, lowercase(&name), reference, timestamp]).map_err(|error| if is_unique(&error) { PATIENT_CONFLICT } else { STORAGE_ERROR })?;
+            select_patient(connection, connection.last_insert_rowid())
         })
     }
 
-    pub fn create_mapping(
-        &self,
-        phrase: &str,
-        category: Category,
-        replacement: &str,
-    ) -> PrivacyResult<MappingView> {
-        self.write_mapping(None, phrase, category, replacement)
-    }
-
-    pub fn update_mapping(
+    /// Renames a patient or changes their patient number. Notes, search entries
+    /// and redactions stay attached through the patient ID.
+    pub fn update_patient(
         &self,
         id: i64,
-        phrase: &str,
-        category: Category,
+        name: &str,
+        patient_reference: Option<&str>,
+    ) -> PrivacyResult<PatientView> {
+        let (name, reference) = patient_fields(name, patient_reference)?;
+        self.with_connection(|connection| {
+            let changed = connection
+                .execute(
+                    "UPDATE patients SET name = ?1, normalized_name = ?2, patient_reference = ?3 WHERE id = ?4",
+                    params![name, lowercase(&name), reference, id],
+                )
+                .map_err(|error| if is_unique(&error) { PATIENT_CONFLICT } else { STORAGE_ERROR })?;
+            if changed == 0 {
+                return Err(PATIENT_UNAVAILABLE);
+            }
+            select_patient(connection, id)
+        })
+    }
+
+    pub fn patient(&self, id: i64) -> PrivacyResult<PatientView> {
+        self.with_connection(|connection| select_patient(connection, id))
+    }
+
+    /// Changes only what an all-patients redaction is replaced with. Its phrase
+    /// and category decide what it matches, so they stay fixed; redactions are
+    /// created during review and are not deleted from the library.
+    pub fn update_mapping_replacement(
+        &self,
+        id: i64,
         replacement: &str,
     ) -> PrivacyResult<MappingView> {
-        self.write_mapping(Some(id), phrase, category, replacement)
+        let replacement = validate_replacement(replacement)?;
+        let timestamp = now()?;
+        self.with_connection(|connection| {
+            let changed = connection
+                .execute(
+                    "UPDATE mappings SET replacement = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![replacement, timestamp, id],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            if changed == 0 {
+                return Err(REDACTION_UNAVAILABLE);
+            }
+            connection
+                .query_row(
+                    "SELECT id, phrase, category, replacement, created_at, updated_at FROM mappings WHERE id = ?1",
+                    [id],
+                    mapping_view,
+                )
+                .map_err(|_| STORAGE_ERROR)
+        })
+    }
+
+    /// Changes only what one patient's redaction is replaced with.
+    pub fn update_patient_mapping_replacement(
+        &self,
+        patient_id: i64,
+        id: i64,
+        replacement: &str,
+    ) -> PrivacyResult<MappingView> {
+        let replacement = validate_replacement(replacement)?;
+        let timestamp = now()?;
+        self.with_connection(|connection| {
+            let changed = connection
+                .execute(
+                    "UPDATE patient_mappings SET replacement = ?1, updated_at = ?2 WHERE id = ?3 AND patient_id = ?4",
+                    params![replacement, timestamp, id, patient_id],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            if changed == 0 {
+                return Err(REDACTION_UNAVAILABLE);
+            }
+            connection
+                .query_row(
+                    "SELECT id, phrase, category, replacement, created_at, updated_at FROM patient_mappings WHERE id = ?1",
+                    [id],
+                    mapping_view,
+                )
+                .map_err(|_| STORAGE_ERROR)
+        })
     }
 
     pub fn upsert_mapping(
@@ -487,72 +555,6 @@ impl Storage {
         })
     }
 
-    pub fn create_patient_mapping(
-        &self,
-        patient_id: i64,
-        phrase: &str,
-        category: Category,
-        replacement: &str,
-    ) -> PrivacyResult<MappingView> {
-        self.write_patient_mapping(patient_id, None, phrase, category, replacement)
-    }
-
-    pub fn update_patient_mapping(
-        &self,
-        patient_id: i64,
-        id: i64,
-        phrase: &str,
-        category: Category,
-        replacement: &str,
-    ) -> PrivacyResult<MappingView> {
-        self.write_patient_mapping(patient_id, Some(id), phrase, category, replacement)
-    }
-
-    fn write_patient_mapping(
-        &self,
-        patient_id: i64,
-        id: Option<i64>,
-        phrase: &str,
-        category: Category,
-        replacement: &str,
-    ) -> PrivacyResult<MappingView> {
-        let phrase = validate_phrase(phrase)?;
-        let normalized = normalise_phrase(&phrase)?;
-        let replacement = validate_replacement(replacement)?;
-        let timestamp = now()?;
-        self.with_connection(|connection| match id {
-            Some(id) => {
-                let changed = connection.execute(
-                    "UPDATE patient_mappings SET phrase = ?1, normalized_phrase = ?2, category = ?3, replacement = ?4, updated_at = ?5 WHERE id = ?6 AND patient_id = ?7",
-                    params![phrase, normalized, category.label(), replacement, timestamp, id, patient_id],
-                );
-                if let Err(error) = changed {
-                    return Err(if is_unique(&error) { STORAGE_CONFLICT } else { STORAGE_ERROR });
-                }
-                connection.query_row(
-                    "SELECT id, phrase, category, replacement, created_at, updated_at FROM patient_mappings WHERE id = ?1 AND patient_id = ?2",
-                    params![id, patient_id],
-                    mapping_view,
-                ).optional().map_err(|_| STORAGE_ERROR)?.ok_or("This mapping is no longer available.")
-            }
-            None => {
-                let inserted = connection.execute(
-                    "INSERT INTO patient_mappings(patient_id, phrase, normalized_phrase, category, replacement, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-                    params![patient_id, phrase, normalized, category.label(), replacement, timestamp],
-                );
-                if let Err(error) = inserted {
-                    return Err(if is_unique(&error) { STORAGE_CONFLICT } else { STORAGE_ERROR });
-                }
-                let id = connection.last_insert_rowid();
-                connection.query_row(
-                    "SELECT id, phrase, category, replacement, created_at, updated_at FROM patient_mappings WHERE id = ?1",
-                    [id],
-                    mapping_view,
-                ).map_err(|_| STORAGE_ERROR)
-            }
-        })
-    }
-
     fn write_mapping(
         &self,
         id: Option<i64>,
@@ -578,27 +580,6 @@ impl Storage {
                     connection.query_row("SELECT id, phrase, category, replacement, created_at, updated_at FROM mappings WHERE id = ?1", [id], mapping_view).map_err(|_| STORAGE_ERROR)
                 }
             }
-        })
-    }
-
-    pub fn delete_mapping(&self, id: i64) -> PrivacyResult<()> {
-        self.with_connection(|connection| {
-            connection
-                .execute("DELETE FROM mappings WHERE id = ?1", [id])
-                .map(|_| ())
-                .map_err(|_| STORAGE_ERROR)
-        })
-    }
-
-    pub fn delete_patient_mapping(&self, patient_id: i64, id: i64) -> PrivacyResult<()> {
-        self.with_connection(|connection| {
-            connection
-                .execute(
-                    "DELETE FROM patient_mappings WHERE patient_id = ?1 AND id = ?2",
-                    params![patient_id, id],
-                )
-                .map(|_| ())
-                .map_err(|_| STORAGE_ERROR)
         })
     }
 
@@ -646,7 +627,43 @@ fn patient_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<PatientView> {
         id: row.get(0)?,
         name: row.get(1)?,
         patient_reference: row.get(2)?,
+        note_count: row.get(3)?,
+        redaction_count: row.get(4)?,
     })
+}
+
+fn select_patient(connection: &Connection, id: i64) -> PrivacyResult<PatientView> {
+    connection
+        .query_row(
+            &format!("SELECT {PATIENT_COLUMNS} FROM patients WHERE id = ?1"),
+            [id],
+            patient_view,
+        )
+        .optional()
+        .map_err(|_| STORAGE_ERROR)?
+        .ok_or(PATIENT_UNAVAILABLE)
+}
+
+fn patient_fields(
+    name: &str,
+    patient_reference: Option<&str>,
+) -> PrivacyResult<(String, Option<String>)> {
+    let name = normalise_required(
+        name,
+        160,
+        "Enter a patient name.",
+        "Use at most 160 characters for the patient name.",
+    )?;
+    let reference = normalise_optional(
+        patient_reference,
+        128,
+        "Use at most 128 characters for the patient number.",
+    )?;
+    Ok((name, reference))
+}
+
+fn lowercase(value: &str) -> String {
+    value.chars().flat_map(char::to_lowercase).collect()
 }
 
 fn note_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteSummary> {
@@ -657,6 +674,7 @@ fn note_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteSummary> {
         created_at: row.get(3)?,
         snippet: row.get(4)?,
         patient_name: row.get(5)?,
+        patient_id: row.get(6)?,
     })
 }
 fn note_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<NoteView> {
@@ -862,7 +880,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Storage::open_for_test(dir.path().join("notes.sqlite"), [7; 32]).unwrap();
         store
-            .create_mapping("Alex Morgan", Category::Person, "[CLIENT]")
+            .upsert_mapping("Alex Morgan", Category::Person, "[CLIENT]")
             .unwrap();
         assert_eq!(
             store
@@ -891,9 +909,9 @@ mod tests {
             .unwrap();
         assert_eq!(note.source_text.as_deref(), Some("Synthetic source text"));
         assert_eq!(note.provenance, "[]");
-        assert_eq!(store.search_notes("outcome").unwrap().len(), 1);
+        assert_eq!(store.search_notes("outcome", None).unwrap().len(), 1);
         store.delete_note(note.id).unwrap();
-        assert!(store.search_notes("outcome").unwrap().is_empty());
+        assert!(store.search_notes("outcome", None).unwrap().is_empty());
     }
 
     #[test]
@@ -914,13 +932,13 @@ mod tests {
             )
             .unwrap();
         store
-            .create_patient_mapping(patient.id, "Alex Morgan", Category::Person, "[CLIENT]")
+            .upsert_patient_mapping(patient.id, "Alex Morgan", Category::Person, "[CLIENT]")
             .unwrap();
 
         store.delete_patient(patient.id).unwrap();
 
         assert!(store.patients().unwrap().is_empty());
-        assert!(store.search_notes("outcome").unwrap().is_empty());
+        assert!(store.search_notes("outcome", None).unwrap().is_empty());
         assert!(store.patient_mappings(patient.id).unwrap().is_empty());
     }
 
@@ -941,9 +959,15 @@ mod tests {
                 "[]",
             )
             .unwrap();
-        assert_eq!(store.search_notes("review").unwrap().len(), 1);
-        assert_eq!(store.search_notes("SYN-2048").unwrap().len(), 1);
-        assert_eq!(store.search_notes("\"clinical outcome\"").unwrap().len(), 1);
+        assert_eq!(store.search_notes("review", None).unwrap().len(), 1);
+        assert_eq!(store.search_notes("SYN-2048", None).unwrap().len(), 1);
+        assert_eq!(
+            store
+                .search_notes("\"clinical outcome\"", None)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -952,7 +976,7 @@ mod tests {
         let store = Storage::open_for_test(dir.path().join("notes.sqlite"), [5; 32]).unwrap();
         let patient = store.create_patient("Synthetic Client", None).unwrap();
         store
-            .create_mapping("Alex Morgan", Category::Person, "[PERSON]")
+            .upsert_mapping("Alex Morgan", Category::Person, "[PERSON]")
             .unwrap();
         store
             .upsert_patient_mapping(patient.id, "Alex Morgan", Category::Person, "[CLIENT]")
@@ -962,26 +986,123 @@ mod tests {
     }
 
     #[test]
-    fn patient_mapping_can_be_edited_and_deleted_from_its_library() {
+    fn redaction_edits_change_only_the_replacement() {
         let dir = tempfile::tempdir().unwrap();
         let store = Storage::open_for_test(dir.path().join("notes.sqlite"), [6; 32]).unwrap();
         let patient = store.create_patient("Synthetic Client", None).unwrap();
-        let mapping = store
-            .create_patient_mapping(patient.id, "Alex Morgan", Category::Person, "[CLIENT]")
+        let other = store.create_patient("Other Client", None).unwrap();
+        let patient_redaction = store
+            .upsert_patient_mapping(patient.id, "Alex Morgan", Category::Person, "[CLIENT]")
             .unwrap();
+        let global = store
+            .upsert_mapping("Riverside Clinic", Category::Organisation, "[CLINIC]")
+            .unwrap();
+
         let edited = store
-            .update_patient_mapping(
-                patient.id,
-                mapping.id,
-                "Alex Morgan",
-                Category::Person,
-                "[PATIENT]",
-            )
+            .update_patient_mapping_replacement(patient.id, patient_redaction.id, "[PATIENT]")
             .unwrap();
         assert_eq!(edited.replacement, "[PATIENT]");
-        store
-            .delete_patient_mapping(patient.id, mapping.id)
+        assert_eq!(edited.phrase, "Alex Morgan");
+        assert_eq!(edited.category, Category::Person);
+        assert_eq!(
+            store.matches("Alex Morgan", Some(patient.id)).unwrap()[0].replacement,
+            "[PATIENT]"
+        );
+        let edited = store
+            .update_mapping_replacement(global.id, "[SERVICE]")
             .unwrap();
-        assert!(store.patient_mappings(patient.id).unwrap().is_empty());
+        assert_eq!(edited.replacement, "[SERVICE]");
+        assert_eq!(edited.phrase, "Riverside Clinic");
+
+        assert_eq!(
+            store
+                .update_patient_mapping_replacement(other.id, patient_redaction.id, "[X]")
+                .err(),
+            Some(REDACTION_UNAVAILABLE)
+        );
+        assert!(store
+            .update_mapping_replacement(global.id, "not a label")
+            .is_err());
+        assert_eq!(
+            store.patient_mappings(patient.id).unwrap()[0].replacement,
+            "[PATIENT]"
+        );
+    }
+
+    #[test]
+    fn patients_can_be_renamed_and_carry_note_and_redaction_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage::open_for_test(dir.path().join("notes.sqlite"), [8; 32]).unwrap();
+        let patient = store
+            .create_patient("Synthetic Client", Some("SYN-8"))
+            .unwrap();
+        store.create_patient("Other Client", None).unwrap();
+        store
+            .save_note(
+                patient.id,
+                "Synthetic review",
+                None,
+                "Source",
+                "Reviewed outcome",
+                "[]",
+            )
+            .unwrap();
+        store
+            .upsert_patient_mapping(patient.id, "Alex Morgan", Category::Person, "[CLIENT]")
+            .unwrap();
+
+        let updated = store
+            .update_patient(patient.id, "  Renamed Client ", Some(" "))
+            .unwrap();
+        assert_eq!(updated.name, "Renamed Client");
+        assert_eq!(updated.patient_reference, None);
+        assert_eq!((updated.note_count, updated.redaction_count), (1, 1));
+        assert_eq!(
+            store.update_patient(patient.id, "other client", None).err(),
+            Some(PATIENT_CONFLICT)
+        );
+        assert_eq!(
+            store.update_patient(999, "Missing Client", None).err(),
+            Some(PATIENT_UNAVAILABLE)
+        );
+        assert!(store.update_patient(patient.id, " ", None).is_err());
+        let listed = store.patients().unwrap();
+        assert_eq!(listed[0].name, "Other Client");
+        assert_eq!((listed[0].note_count, listed[0].redaction_count), (0, 0));
+    }
+
+    #[test]
+    fn note_search_can_be_limited_to_one_patient() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage::open_for_test(dir.path().join("notes.sqlite"), [4; 32]).unwrap();
+        let first = store.create_patient("First Client", Some("SYN-1")).unwrap();
+        let second = store.create_patient("Second Client", None).unwrap();
+        for patient in [&first, &second] {
+            store
+                .save_note(
+                    patient.id,
+                    "Sleep review",
+                    None,
+                    "Source",
+                    "Improved sleep",
+                    "[]",
+                )
+                .unwrap();
+        }
+        assert_eq!(store.search_notes("sleep", None).unwrap().len(), 2);
+        let scoped = store.search_notes("sleep", Some(first.id)).unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].patient_id, Some(first.id));
+        assert_eq!(scoped[0].patient_reference.as_deref(), Some("SYN-1"));
+        assert_eq!(store.search_notes("", Some(second.id)).unwrap().len(), 1);
+        store
+            .update_patient(first.id, "First Client", Some("SYN-9"))
+            .unwrap();
+        assert_eq!(
+            store.search_notes("", Some(first.id)).unwrap()[0]
+                .patient_reference
+                .as_deref(),
+            Some("SYN-9")
+        );
     }
 }

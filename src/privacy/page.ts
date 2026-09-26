@@ -9,12 +9,44 @@ import type {
   PrivacyBridge,
   ReviewSession,
 } from "./types";
+import "../styles/components.css";
 import "../styles/review.css";
+import {
+  breadcrumb,
+  confirmation,
+  confirmRow,
+  dataTable,
+  emptyState,
+  pageHeader,
+  plural,
+  rowOpener,
+  searchForm,
+  searchStatus,
+  toolbar,
+} from "./components";
+import { brandMark, categoryLabel, formatDate, h } from "./dom";
 import { normalisePlaceholder, placeholderError } from "./placeholder";
 import type { Progress } from "./types";
 
 type Work = "download" | "analysis" | "rescan" | "review" | "copy";
-type Screen = "patients" | "review" | "notes" | "mappings" | "settings";
+type Tab = "details" | "notes" | "redactions";
+type Section = "patients" | "notes" | "redactions" | "settings";
+type Route =
+  | { name: "patients" }
+  | { name: "patient-new" }
+  | { name: "patient"; patientId: number; tab: Tab }
+  | { name: "review" }
+  | { name: "notes" }
+  | { name: "redactions" }
+  | { name: "settings" };
+/** Where the clinician goes once an unsaved review is discarded. */
+type Leave = Route | "home" | "discard";
+interface RedactionEdit {
+  scope: "patient" | "global";
+  id: number;
+  value: string;
+  error: string;
+}
 
 const EXAMPLE =
   "Alex Morgan attended a review in Bristol on 12 March 2026. Alex Morgan reported improved sleep and no change to the prescribed 10 mg dose. Contact: alex.morgan@example.invalid. Case reference: SYN-2048.";
@@ -30,8 +62,15 @@ const STAGE_LABEL: Record<string, string> = {
   ner: "local model",
   rules: "identifier patterns",
   manual: "manual selection",
-  library: "saved mapping",
+  library: "saved redaction",
 };
+const TABS: Tab[] = ["details", "notes", "redactions"];
+const TAB_LABEL: Record<Tab, string> = {
+  details: "Details",
+  notes: "Notes",
+  redactions: "Redactions",
+};
+const CANCELLABLE: (Work | null)[] = ["download", "analysis", "rescan"];
 
 export class TextReviewPage {
   private source = "";
@@ -42,7 +81,6 @@ export class TextReviewPage {
   private operation = 0;
   private disposed = false;
   private unsubscribe?: () => void;
-  private dismissDiscard?: () => void;
   private selection: { start: number; end: number } | null = null;
   private message = "";
   private error = "";
@@ -50,27 +88,39 @@ export class TextReviewPage {
   private work: Work | null = null;
   private workProgress: Progress | null = null;
   private cancelling = false;
-  private screen: Screen = "review";
   private resolvedOpen = false;
-  private notes: NoteSummary[] = [];
   private savedTitle: string | null = null;
-  private noteQuery = "";
-  private mappings: MappingView[] = [];
-  private patientMappings: MappingView[] = [];
   private reviewSavedMappings = false;
   private wizardGroup: number | null = null;
   private wizardGroupIds: number[] = [];
-  private editingMapping: MappingView | null = null;
-  private editingPatientMapping = false;
+  private route: Route;
   private patients: PatientView[] = [];
   private patient: PatientView | null = null;
+  private patientQuery = "";
+  private notes: NoteSummary[] = [];
+  private noteQuery = "";
+  private searchedQuery = "";
+  private mappings: MappingView[] = [];
+  private patientMappings: MappingView[] = [];
+  private redactionQuery = "";
+  private editing: RedactionEdit | null = null;
+  private confirming: string | null = null;
+  private discarding: Leave | null = null;
+  private patientDraft = { name: "", reference: "" };
+  private noteTitle: string | null = null;
+  private openedRevision: number | null = null;
+  private saveError = "";
+  private focusTarget: string | null = null;
+  private restoreFocus: string | null = null;
+  private readonly keydown = (event: KeyboardEvent) => this.onKeydown(event);
   constructor(
     private root: HTMLElement,
     private bridge: PrivacyBridge,
     private onHome: () => void,
-    initialScreen: Screen = "review",
+    initialScreen: "patients" | "notes" | "review" = "review",
   ) {
-    this.screen = initialScreen;
+    this.route = { name: initialScreen };
+    root.addEventListener("keydown", this.keydown);
   }
 
   async mount(): Promise<void> {
@@ -100,20 +150,19 @@ export class TextReviewPage {
       this.error = "Model status is unavailable. Reopen this page to retry.";
     }
     this.initialising = false;
-    if (!this.disposed) {
-      if (this.screen === "patients") await this.loadPatients();
-      else if (this.screen === "notes") await this.loadNotes();
-      else this.render();
-    }
+    if (this.disposed) return;
+    await this.load(this.route);
+    this.render();
   }
 
   dispose(): void {
     this.disposed = true;
-    this.dismissDiscard?.();
+    this.root.removeEventListener("keydown", this.keydown);
     this.unsubscribe?.();
     this.source = "";
     this.session = null;
     this.selection = null;
+    this.discarding = null;
     this.drafts.clear();
     this.workProgress = null;
     this.work = null;
@@ -125,16 +174,1640 @@ export class TextReviewPage {
   private bind(selector: string, action: () => void): void {
     this.el(selector).addEventListener("click", action);
   }
+
+  // Shell -----------------------------------------------------------------
+
+  private render(): void {
+    if (this.disposed) return;
+    const main = h("main", { class: "page", "data-main": true });
+    this.root.replaceChildren(
+      h("div", { class: "workspace" }, this.header(), main),
+    );
+    const route = this.route;
+    if (route.name === "review") this.renderReviewScreen(main);
+    else main.append(...this.screen(route));
+    this.updateStatus();
+    this.afterRender();
+  }
+  private screen(route: Exclude<Route, { name: "review" }>): Node[] {
+    switch (route.name) {
+      case "patients":
+        return this.patientsScreen();
+      case "patient-new":
+        return this.newPatientScreen();
+      case "patient":
+        return this.patient
+          ? this.patientScreen(route, this.patient)
+          : this.patientsScreen();
+      case "notes":
+        return this.notesScreen();
+      case "redactions":
+        return this.redactionsScreen();
+      case "settings":
+        return this.settingsScreen();
+    }
+  }
+  private section(): Section {
+    const name = this.route.name;
+    return name === "notes" || name === "redactions" || name === "settings"
+      ? name
+      : "patients";
+  }
+  private header(): HTMLElement {
+    const current = this.section();
+    const link = (section: Section, label: string) =>
+      h(
+        "button",
+        {
+          type: "button",
+          "data-route": section,
+          "aria-current": current === section ? "page" : null,
+          disabled: this.busy,
+          onclick: () => void this.navigate({ name: section }),
+        },
+        label,
+      );
+    return h(
+      "header",
+      { class: "app-header" },
+      h(
+        "div",
+        { class: "app-header__inner" },
+        h(
+          "button",
+          {
+            type: "button",
+            class: "brand",
+            "data-home": true,
+            "aria-label": "Clinician’s Veil home",
+            disabled: this.busy,
+            onclick: () => void this.goHome(),
+          },
+          brandMark(),
+          h("span", {}, "Clinician’s Veil"),
+        ),
+        h(
+          "nav",
+          { class: "primary-nav", "aria-label": "Application" },
+          link("patients", "Patients"),
+          link("notes", "Notes"),
+          link("redactions", "Redactions"),
+          link("settings", "Settings"),
+        ),
+        h("span", { class: "local-indicator" }, "On this Mac"),
+      ),
+      h("progress", {
+        class: "activity",
+        "data-progress": true,
+        max: "100",
+        hidden: true,
+      }),
+      h(
+        "div",
+        {
+          class: "activity-status",
+          "data-activity-status": true,
+          role: "status",
+          hidden: true,
+        },
+        h(
+          "p",
+          {},
+          h("strong", { "data-activity-message": true }),
+          " ",
+          h("span", { class: "muted", "data-work-detail": true }),
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            class: "button button--compact",
+            "data-cancel": true,
+            hidden: true,
+            onclick: () => void this.cancel(),
+          },
+          "Cancel",
+        ),
+      ),
+    );
+  }
   private updateStatus(): void {
     if (this.disposed) return;
-    if (this.screen !== "review") {
-      this.updateOverlay();
+    if (
+      this.route.name === "review" &&
+      this.root.querySelector("[data-step]")
+    ) {
+      this.el<HTMLElement>("[data-error]").textContent = this.error;
+      this.updateWorkflow();
+    }
+    this.updateActivity();
+  }
+  /** The header activity bar replaces the old full-screen overlay. Page
+   * content is inert while busy; Cancel stays reachable in the header. */
+  private updateActivity(): void {
+    const main = this.root.querySelector<HTMLElement>("[data-main]");
+    if (!main) return;
+    main.inert = this.busy;
+    const running = this.initialising || this.busy;
+    const cancellable = this.busy && CANCELLABLE.includes(this.work);
+    const progress = this.el<HTMLProgressElement>("[data-progress]");
+    progress.hidden = !(this.initialising || cancellable);
+    const percentage = this.cancelling ? null : this.progressPercent();
+    if (percentage === null) progress.removeAttribute("value");
+    else progress.value = percentage;
+    progress.setAttribute(
+      "aria-label",
+      this.work === "download"
+        ? "Model download progress"
+        : this.work === "rescan"
+          ? "Final check progress"
+          : "Analysis progress",
+    );
+    this.el<HTMLElement>("[data-activity-status]").hidden = !running;
+    this.el<HTMLElement>("[data-activity-message]").textContent = this
+      .initialising
+      ? "Verifying the local model…"
+      : this.message || "Working locally";
+    this.el<HTMLElement>("[data-work-detail]").textContent = !running
+      ? ""
+      : this.cancelling
+        ? "Waiting for the current local operation to stop."
+        : this.workProgress &&
+            this.work !== "download" &&
+            this.workProgress.total > 0
+          ? `Section ${Math.min(this.workProgress.completed, this.workProgress.total)} of ${this.workProgress.total} · Processing on this Mac`
+          : this.work === "download"
+            ? "Downloading model files only; source text stays on this Mac."
+            : "Processing on this Mac.";
+    const cancel = this.el<HTMLButtonElement>("[data-cancel]");
+    cancel.hidden = !cancellable;
+    cancel.disabled = this.cancelling;
+  }
+  private afterRender(): void {
+    const target = this.focusTarget;
+    if (!target || this.busy) return;
+    this.focusTarget = null;
+    const element = this.root.querySelector<HTMLElement>(
+      target === "h1" ? "main h1" : target,
+    );
+    element?.focus();
+    if (element instanceof HTMLInputElement && element.dataset.selectOnFocus)
+      element.select();
+  }
+  private onKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || this.busy) return;
+    if (this.discarding) this.stay();
+    else if (this.editing) this.cancelEdit();
+    else if (this.confirming) this.cancelConfirm();
+    else return;
+    event.preventDefault();
+  }
+  private errorNotice(): HTMLElement {
+    return h(
+      "p",
+      {
+        class: "notice notice--danger",
+        role: "alert",
+        "data-error": true,
+        hidden: !this.error,
+      },
+      this.error,
+    );
+  }
+  private flashNotice(): HTMLElement | null {
+    return this.message && !this.busy
+      ? h(
+          "p",
+          { class: "notice", role: "status", "data-flash": true },
+          this.message,
+        )
+      : null;
+  }
+
+  // Navigation --------------------------------------------------------------
+
+  private async navigate(route: Route): Promise<void> {
+    if (this.busy || this.disposed) return;
+    if (this.route.name === "review" && route.name !== "review") {
+      if (this.hasUnsavedReview()) {
+        this.requestLeave(route);
+        return;
+      }
+      if (!(await this.clearSession())) return;
+    }
+    await this.show(route);
+  }
+  private async show(
+    route: Route,
+    options: { flash?: string; keepQuery?: boolean; focus?: string } = {},
+  ): Promise<void> {
+    this.route = route;
+    this.error = "";
+    this.confirming = null;
+    this.editing = null;
+    this.discarding = null;
+    if (!options.keepQuery) {
+      this.patientQuery = "";
+      this.noteQuery = "";
+      this.redactionQuery = "";
+    }
+    if (route.name === "patient-new")
+      this.patientDraft = { name: "", reference: "" };
+    await this.load(route);
+    if (this.route.name === "patient" && this.patient) this.resetPatientDraft();
+    this.message = options.flash ?? "";
+    this.focusTarget = options.focus ?? "h1";
+    this.render();
+  }
+  private async load(route: Route): Promise<void> {
+    if (!this.bridge.available) return;
+    const call = this.bridge.call.bind(this.bridge);
+    switch (route.name) {
+      case "patients": {
+        const result = await this.perform("Loading patients…", () =>
+          call<PatientView[]>("list_patients"),
+        );
+        if (result) this.patients = result;
+        return;
+      }
+      case "patient": {
+        const query = this.noteQuery;
+        const result = await this.perform("Opening patient…", async () => {
+          const patients = await call<PatientView[]>("list_patients");
+          const patient = patients.find((item) => item.id === route.patientId);
+          if (!patient) throw "This patient is no longer available.";
+          const notes =
+            route.tab === "notes"
+              ? await call<NoteSummary[]>("search_notes", {
+                  query,
+                  patientId: patient.id,
+                })
+              : this.notes;
+          const [patientMappings, mappings] =
+            route.tab === "redactions"
+              ? await Promise.all([
+                  call<MappingView[]>("list_patient_mappings", {
+                    patientId: patient.id,
+                  }),
+                  call<MappingView[]>("list_mappings"),
+                ])
+              : [this.patientMappings, this.mappings];
+          return { patients, patient, notes, patientMappings, mappings };
+        });
+        if (!result) {
+          this.patient = null;
+          this.route = { name: "patients" };
+          return;
+        }
+        ({
+          patients: this.patients,
+          patient: this.patient,
+          notes: this.notes,
+          patientMappings: this.patientMappings,
+          mappings: this.mappings,
+        } = result);
+        this.searchedQuery = query;
+        return;
+      }
+      case "notes": {
+        const query = this.noteQuery;
+        const result = await this.perform("Searching notes…", () =>
+          call<NoteSummary[]>("search_notes", { query }),
+        );
+        if (result) {
+          this.notes = result;
+          this.searchedQuery = query;
+        }
+        return;
+      }
+      case "redactions": {
+        const result = await this.perform("Loading redactions…", () =>
+          call<MappingView[]>("list_mappings"),
+        );
+        if (result) this.mappings = result;
+        return;
+      }
+      case "settings": {
+        const result = await this.perform("Checking the local model…", () =>
+          call<ModelStatus>("model_status"),
+        );
+        if (result) this.model = result;
+        return;
+      }
+      default:
+        return;
+    }
+  }
+  private hasUnsavedReview(): boolean {
+    if (this.session)
+      return !(
+        this.savedTitle !== null &&
+        this.session.revision === this.openedRevision &&
+        this.drafts.size === 0
+      );
+    return this.source.trim().length > 0;
+  }
+  private requestLeave(target: Leave): void {
+    this.discarding = target;
+    this.focusTarget = "[data-stay]";
+    this.render();
+  }
+  private stay(): void {
+    this.discarding = null;
+    this.focusTarget = "[data-discard]";
+    this.render();
+  }
+  private async confirmLeave(): Promise<void> {
+    const target = this.discarding;
+    if (!target || this.busy) return;
+    this.discarding = null;
+    if (!(await this.clearSession())) return;
+    if (target === "home") {
+      this.dispose();
+      this.onHome();
+    } else if (target === "discard") {
+      this.focusTarget = "#source-input";
+      this.render();
+    } else await this.show(target);
+  }
+  private async goHome(): Promise<void> {
+    if (this.busy || this.disposed) return;
+    if (this.route.name === "review" && this.hasUnsavedReview()) {
+      this.requestLeave("home");
       return;
     }
-    this.el<HTMLElement>("[data-status]").textContent = this.message;
-    this.el<HTMLElement>("[data-error]").textContent = this.error;
-    this.updateWorkflow();
-    this.updateOverlay();
+    if (!(await this.clearSession())) return;
+    this.dispose();
+    this.onHome();
+  }
+  private discardClicked(): void {
+    if (this.busy) return;
+    if (this.hasUnsavedReview()) this.requestLeave("discard");
+    else void this.clearSession().then(() => this.render());
+  }
+  /** Drops the native and displayed review session. Returns false, with the
+   * error shown, if the native session could not be cleared. */
+  private async clearSession(ignoreErrors = false): Promise<boolean> {
+    if ((this.source || this.session) && this.bridge.available) {
+      this.busy = true;
+      this.message = "Clearing the session…";
+      this.render();
+      try {
+        await this.bridge.call("discard_session");
+      } catch {
+        if (!ignoreErrors) {
+          this.error = "The session could not be cleared. Please retry.";
+          this.busy = false;
+          this.message = "";
+          this.render();
+          return false;
+        }
+      }
+      this.busy = false;
+      this.message = "";
+    }
+    this.resetReview();
+    this.error = "";
+    return !this.disposed;
+  }
+  private resetReview(): void {
+    this.source = "";
+    this.session = null;
+    this.savedTitle = null;
+    this.noteTitle = null;
+    this.openedRevision = null;
+    this.saveError = "";
+    this.reviewSavedMappings = false;
+    this.wizardGroup = null;
+    this.wizardGroupIds = [];
+    this.selection = null;
+    this.drafts.clear();
+  }
+  private startConfirm(key: string, trigger: string): void {
+    if (this.busy) return;
+    this.confirming = key;
+    this.restoreFocus = trigger;
+    this.focusTarget = "[data-cancel-confirm]";
+    this.render();
+  }
+  private cancelConfirm(): void {
+    this.confirming = null;
+    this.focusTarget = this.restoreFocus;
+    this.render();
+  }
+
+  // Patients ----------------------------------------------------------------
+
+  private patientsScreen(): Node[] {
+    const query = this.patientQuery.toLowerCase();
+    const rows = this.patients.filter((patient) =>
+      `${patient.name} ${patient.patientReference ?? ""}`
+        .toLowerCase()
+        .includes(query),
+    );
+    const add = (primary: boolean) =>
+      h(
+        "button",
+        {
+          type: "button",
+          class: primary ? "button button--primary" : "button",
+          "data-add-patient": primary ? true : null,
+          disabled: this.busy,
+          onclick: () => void this.navigate({ name: "patient-new" }),
+        },
+        "Add patient",
+      );
+    const list = !this.patients.length
+      ? emptyState(
+          "No patients yet",
+          "Add a patient to start their first note.",
+          add(false),
+        )
+      : h(
+          "div",
+          {},
+          toolbar(
+            searchForm({
+              label: "Search patients",
+              placeholder: "Search by name or patient number",
+              value: this.patientQuery,
+              onSearch: (value) => {
+                this.patientQuery = value;
+                this.focusTarget = "#search";
+                this.render();
+              },
+            }),
+            searchStatus({
+              shown: rows.length,
+              total: this.patients.length,
+              noun: "patient",
+              query: this.patientQuery,
+              onClear: () => {
+                this.patientQuery = "";
+                this.focusTarget = "#search";
+                this.render();
+              },
+            }),
+          ),
+          dataTable(
+            [
+              { label: "Patient" },
+              { label: "Patient number" },
+              { label: "Notes", narrow: true },
+              { label: "Redactions", narrow: true },
+              { label: "Actions", hidden: true },
+            ],
+            rows.length
+              ? rows.map((patient) => this.patientRow(patient))
+              : [
+                  h(
+                    "tr",
+                    {},
+                    h(
+                      "td",
+                      { colspan: 5, class: "muted" },
+                      `No patients match “${this.patientQuery}”.`,
+                    ),
+                  ),
+                ],
+          ),
+        );
+    return [
+      pageHeader({
+        eyebrow: "Patient library",
+        title: ["Patients"],
+        id: "patients-title",
+        description:
+          "Open a patient to see their notes and redactions, or start a new note.",
+        actions: [add(true)],
+      }),
+      this.errorNotice(),
+      this.flashNotice(),
+      h("section", { "data-patient-list": true }, list),
+    ].filter((node): node is HTMLElement => node !== null);
+  }
+  private patientRow(patient: PatientView): HTMLElement {
+    const open = () =>
+      void this.navigate({
+        name: "patient",
+        patientId: patient.id,
+        tab: "notes",
+      });
+    return h(
+      "tr",
+      { class: "row-link", onclick: rowOpener(open) },
+      h(
+        "td",
+        {},
+        h(
+          "button",
+          {
+            type: "button",
+            class: "row-open",
+            "data-open-patient": patient.id,
+            onclick: open,
+          },
+          patient.name,
+        ),
+      ),
+      h("td", { class: "mono" }, patient.patientReference ?? "—"),
+      h("td", { class: "hide-narrow" }, patient.noteCount ?? 0),
+      h("td", { class: "hide-narrow" }, patient.redactionCount ?? 0),
+      h(
+        "td",
+        { class: "actions" },
+        h(
+          "button",
+          {
+            type: "button",
+            class: "button button--compact",
+            "data-start-note": patient.id,
+            onclick: () => this.startNote(patient),
+          },
+          "New note",
+        ),
+      ),
+    );
+  }
+  private newPatientScreen(): Node[] {
+    return [
+      breadcrumb([
+        {
+          label: "Patients",
+          onSelect: () => void this.navigate({ name: "patients" }),
+        },
+        { label: "New patient" },
+      ]),
+      pageHeader({
+        eyebrow: "Patient library",
+        title: ["New patient"],
+        id: "new-patient-title",
+        description:
+          "Add the details you use to recognise this patient. They stay in the encrypted library on this Mac.",
+      }),
+      this.errorNotice(),
+      h(
+        "form",
+        {
+          class: "panel",
+          "data-patient-form": true,
+          onsubmit: (event: Event) => {
+            event.preventDefault();
+            void this.createPatient();
+          },
+        },
+        ...this.patientFields(),
+        h(
+          "div",
+          { class: "form-actions" },
+          h(
+            "button",
+            { type: "submit", class: "button button--primary" },
+            "Add patient",
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              class: "button button--quiet",
+              onclick: () => void this.navigate({ name: "patients" }),
+            },
+            "Cancel",
+          ),
+        ),
+      ),
+    ];
+  }
+  private patientFields(onChange?: () => void): HTMLElement[] {
+    const field = (
+      key: "name" | "reference",
+      id: string,
+      label: string,
+      limit: number,
+      hint?: string,
+    ) =>
+      h(
+        "div",
+        { class: "field" },
+        h(
+          "label",
+          { for: id },
+          label,
+          key === "reference" && " ",
+          key === "reference" && h("span", { class: "muted" }, "(optional)"),
+        ),
+        h("input", {
+          id,
+          [`data-patient-${key}`]: true,
+          value: this.patientDraft[key],
+          maxlength: limit,
+          required: key === "name",
+          autocomplete: "off",
+          spellcheck: "false",
+          "aria-describedby": hint ? `${id}-hint` : null,
+          oninput: (event: Event) => {
+            this.patientDraft[key] = (event.target as HTMLInputElement).value;
+            onChange?.();
+          },
+        }),
+        hint && h("span", { class: "hint", id: `${id}-hint` }, hint),
+      );
+    return [
+      field("name", "patient-name", "Patient name", 160),
+      field(
+        "reference",
+        "patient-reference",
+        "Patient number",
+        128,
+        "Your local reference, for example a case number.",
+      ),
+    ];
+  }
+  private async createPatient(): Promise<void> {
+    const result = await this.perform("Adding patient…", () =>
+      this.bridge.call<PatientView>("create_patient", {
+        name: this.patientDraft.name,
+        patientReference: this.patientDraft.reference.trim() || undefined,
+      }),
+    );
+    if (result) {
+      await this.show(
+        { name: "patient", patientId: result.id, tab: "notes" },
+        { flash: "Patient added." },
+      );
+      return;
+    }
+    this.focusTarget = "#patient-name";
+    this.render();
+  }
+  private startNote(patient: PatientView): void {
+    if (this.busy) return;
+    this.patient = patient;
+    this.route = { name: "review" };
+    this.resetReview();
+    this.error = "";
+    this.message = "";
+    this.confirming = null;
+    if (this.bridge.available)
+      void this.bridge.call("discard_session").catch(() => undefined);
+    this.focusTarget = "#source-input";
+    this.render();
+  }
+
+  // Patient workspace -------------------------------------------------------
+
+  private patientScreen(
+    route: Extract<Route, { name: "patient" }>,
+    patient: PatientView,
+  ): Node[] {
+    const count: Record<Tab, number | undefined> = {
+      details: undefined,
+      notes: patient.noteCount,
+      redactions: patient.redactionCount,
+    };
+    const tabs = TABS.map((tab) =>
+      h(
+        "button",
+        {
+          type: "button",
+          role: "tab",
+          id: `tab-${tab}`,
+          "data-tab": tab,
+          "aria-selected": String(route.tab === tab),
+          "aria-controls": "patient-panel",
+          tabindex: route.tab === tab ? "0" : "-1",
+          onclick: () => this.selectTab(route, tab),
+          onkeydown: (event: Event) =>
+            this.tabKeys(event as KeyboardEvent, route),
+        },
+        TAB_LABEL[tab],
+        count[tab] !== undefined &&
+          h("span", { class: "count" }, count[tab] ?? 0),
+      ),
+    );
+    const content =
+      route.tab === "details"
+        ? this.detailsTab(patient)
+        : route.tab === "notes"
+          ? this.patientNotesTab(patient)
+          : this.patientRedactionsTab(patient);
+    return [
+      breadcrumb([
+        {
+          label: "Patients",
+          onSelect: () => void this.navigate({ name: "patients" }),
+        },
+        { label: patient.name },
+      ]),
+      h(
+        "section",
+        { class: "patient-ribbon" },
+        pageHeader({
+          eyebrow: "Patient",
+          title: [
+            patient.name,
+            patient.patientReference &&
+              h("span", { class: "reference" }, patient.patientReference),
+          ],
+          id: "patient-title",
+          actions: [
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button button--primary",
+                "data-new-note": true,
+                onclick: () => this.startNote(patient),
+              },
+              "New note",
+            ),
+          ],
+        }),
+        h(
+          "div",
+          { class: "tabs", role: "tablist", "aria-label": "Patient sections" },
+          ...tabs,
+        ),
+      ),
+      h(
+        "section",
+        {
+          class: "tab-panel",
+          role: "tabpanel",
+          id: "patient-panel",
+          "aria-labelledby": `tab-${route.tab}`,
+        },
+        this.errorNotice(),
+        this.flashNotice(),
+        ...content,
+      ),
+    ];
+  }
+  private selectTab(
+    route: Extract<Route, { name: "patient" }>,
+    tab: Tab,
+  ): void {
+    if (this.busy || tab === route.tab) return;
+    void this.show({ ...route, tab }, { focus: `#tab-${tab}` });
+  }
+  private tabKeys(
+    event: KeyboardEvent,
+    route: Extract<Route, { name: "patient" }>,
+  ): void {
+    const index = TABS.indexOf(route.tab);
+    const next =
+      event.key === "ArrowRight"
+        ? TABS[(index + 1) % TABS.length]
+        : event.key === "ArrowLeft"
+          ? TABS[(index + TABS.length - 1) % TABS.length]
+          : event.key === "Home"
+            ? TABS[0]
+            : event.key === "End"
+              ? TABS[TABS.length - 1]
+              : null;
+    if (!next) return;
+    event.preventDefault();
+    this.selectTab(route, next);
+  }
+  private resetPatientDraft(): void {
+    this.patientDraft = {
+      name: this.patient?.name ?? "",
+      reference: this.patient?.patientReference ?? "",
+    };
+  }
+  private detailsTab(patient: PatientView): Node[] {
+    const changed = () =>
+      this.patientDraft.name !== patient.name ||
+      this.patientDraft.reference !== (patient.patientReference ?? "");
+    const actions = [
+      h(
+        "button",
+        {
+          type: "submit",
+          class: "button",
+          "data-save-patient": true,
+          "data-requires-change": true,
+          disabled: !changed(),
+        },
+        "Save changes",
+      ),
+      h(
+        "button",
+        {
+          type: "button",
+          class: "button button--quiet",
+          "data-undo-patient": true,
+          "data-requires-change": true,
+          disabled: !changed(),
+          onclick: () => {
+            this.resetPatientDraft();
+            this.focusTarget = "#patient-name";
+            this.render();
+          },
+        },
+        "Undo changes",
+      ),
+    ];
+    const form = h(
+      "form",
+      {
+        class: "form-stack",
+        "data-patient-form": true,
+        onsubmit: (event: Event) => {
+          event.preventDefault();
+          if (changed()) void this.savePatient(patient);
+        },
+      },
+      ...this.patientFields(() => {
+        for (const button of actions) button.disabled = !changed();
+      }),
+      h("div", { class: "form-actions" }, ...actions),
+    );
+    const danger =
+      this.confirming === "patient"
+        ? h(
+            "div",
+            { class: "danger-zone notice notice--danger" },
+            confirmation({
+              subject: "patient",
+              question: `Delete ${patient.name}?`,
+              consequence: `Their ${plural(patient.noteCount ?? 0, "note")} and ${plural(patient.redactionCount ?? 0, "redaction")} will also be deleted from the encrypted library.`,
+              onCancel: () => this.cancelConfirm(),
+              onConfirm: () => void this.deletePatient(patient),
+            }),
+          )
+        : h(
+            "div",
+            { class: "danger-zone" },
+            h(
+              "div",
+              {},
+              h("p", { class: "section-title" }, "Delete patient"),
+              h(
+                "p",
+                { class: "muted" },
+                "Removes this patient, their notes and their redactions from this Mac.",
+              ),
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button button--danger-quiet",
+                "data-confirm-trigger": "patient",
+                onclick: () =>
+                  this.startConfirm(
+                    "patient",
+                    '[data-confirm-trigger="patient"]',
+                  ),
+              },
+              "Delete patient…",
+            ),
+          );
+    return [form, danger];
+  }
+  private async savePatient(patient: PatientView): Promise<void> {
+    const result = await this.perform("Saving changes…", () =>
+      this.bridge.call<PatientView>("update_patient", {
+        id: patient.id,
+        name: this.patientDraft.name,
+        patientReference: this.patientDraft.reference.trim() || undefined,
+      }),
+    );
+    if (result) {
+      this.patient = result;
+      this.patients = this.patients.map((item) =>
+        item.id === result.id ? result : item,
+      );
+      this.resetPatientDraft();
+      this.message = "Changes saved.";
+    }
+    this.focusTarget = "#patient-name";
+    this.render();
+  }
+  private async deletePatient(patient: PatientView): Promise<void> {
+    let deleted = false;
+    await this.perform("Deleting patient…", async () => {
+      await this.bridge.call("delete_patient", { id: patient.id });
+      deleted = true;
+    });
+    if (deleted) {
+      this.patient = null;
+      await this.show({ name: "patients" }, { flash: "Patient deleted." });
+      return;
+    }
+    this.render();
+  }
+
+  // Notes -------------------------------------------------------------------
+
+  private patientNotesTab(patient: PatientView): Node[] {
+    if (!this.notes.length && !this.searchedQuery)
+      return [
+        emptyState(
+          "No notes yet",
+          "Start a note to de-identify text for this patient.",
+          h(
+            "button",
+            {
+              type: "button",
+              class: "button",
+              onclick: () => this.startNote(patient),
+            },
+            "Start a note",
+          ),
+        ),
+      ];
+    return [this.notesTable(patient.noteCount, false)];
+  }
+  private notesScreen(): Node[] {
+    return [
+      pageHeader({
+        eyebrow: "Encrypted library",
+        title: ["Notes"],
+        id: "notes-title",
+        description:
+          "Reviewed notes for every patient. Open a patient to start a new note.",
+      }),
+      this.errorNotice(),
+      this.flashNotice(),
+      h(
+        "section",
+        { "data-note-results": true },
+        !this.notes.length && !this.searchedQuery
+          ? emptyState(
+              "No notes yet",
+              "Open a patient and start a note. Saved notes appear here.",
+            )
+          : this.notesTable(undefined, true),
+      ),
+    ].filter((node): node is HTMLElement => node !== null);
+  }
+  private notesTable(total: number | undefined, withPatient: boolean): Node {
+    const columns = withPatient ? 5 : 4;
+    const rows = this.notes.flatMap((note) => {
+      const open = () => void this.openNote(note.id);
+      const key = `note-${note.id}`;
+      const row = h(
+        "tr",
+        { class: "row-link", onclick: rowOpener(open) },
+        withPatient &&
+          h(
+            "td",
+            {},
+            note.patientName ?? "Patient unavailable",
+            note.patientReference &&
+              h("span", { class: "mono muted" }, ` ${note.patientReference}`),
+          ),
+        h(
+          "td",
+          {},
+          h(
+            "button",
+            {
+              type: "button",
+              class: "row-open",
+              "data-open-note": note.id,
+              onclick: open,
+            },
+            note.title,
+          ),
+        ),
+        h("td", { class: "excerpt" }, ...withPlaceholders(note.snippet)),
+        h("td", { class: "mono" }, formatDate(note.createdAt)),
+        h(
+          "td",
+          { class: "actions" },
+          h(
+            "button",
+            {
+              type: "button",
+              class: "button button--compact button--danger-quiet",
+              "data-confirm-trigger": key,
+              onclick: () =>
+                this.startConfirm(key, `[data-confirm-trigger="${key}"]`),
+            },
+            "Delete",
+          ),
+        ),
+      );
+      return this.confirming === key
+        ? [
+            row,
+            confirmRow({
+              colspan: columns,
+              subject: "note",
+              consequence:
+                "Its original text, reviewed text and review record will be deleted from the encrypted library.",
+              onCancel: () => this.cancelConfirm(),
+              onConfirm: () => void this.deleteNote(note.id),
+            }),
+          ]
+        : [row];
+    });
+    return h(
+      "div",
+      {},
+      toolbar(
+        searchForm({
+          label: "Search notes",
+          placeholder: "Search titles and reviewed text",
+          value: this.noteQuery,
+          onSearch: (value) => void this.searchNotes(value),
+        }),
+        searchStatus({
+          shown: this.notes.length,
+          total,
+          noun: "note",
+          query: this.searchedQuery,
+          onClear: () => void this.searchNotes(""),
+        }),
+      ),
+      dataTable(
+        [
+          ...(withPatient ? [{ label: "Patient" }] : []),
+          { label: "Title" },
+          { label: "Reviewed text", narrow: true },
+          { label: "Saved" },
+          { label: "Actions", hidden: true },
+        ],
+        rows.length
+          ? rows
+          : [
+              h(
+                "tr",
+                {},
+                h(
+                  "td",
+                  { colspan: columns, class: "muted" },
+                  `No notes match “${this.searchedQuery}”.`,
+                ),
+              ),
+            ],
+      ),
+    );
+  }
+  private async searchNotes(query: string): Promise<void> {
+    this.noteQuery = query;
+    this.confirming = null;
+    await this.load(this.route);
+    this.focusTarget = "#search";
+    this.render();
+  }
+  private async openNote(id: number): Promise<void> {
+    const result = await this.perform("Opening saved note…", () =>
+      this.bridge.call<OpenedNote>("open_saved_note", { id }),
+    );
+    if (result) {
+      this.resetReview();
+      this.savedTitle = result.note.title;
+      this.noteTitle = result.note.title;
+      this.patient = {
+        id: result.note.patientId!,
+        name: result.note.patientName ?? "Patient unavailable",
+        patientReference: result.note.patientReference,
+      };
+      this.source = result.session.source;
+      this.session = result.session;
+      this.openedRevision = result.session.revision;
+      this.route = { name: "review" };
+      this.confirming = null;
+      this.message = "";
+      this.focusTarget = "h1";
+    }
+    this.render();
+  }
+  private async deleteNote(id: number): Promise<void> {
+    let deleted = false;
+    await this.perform("Deleting note…", async () => {
+      await this.bridge.call("delete_note", { id });
+      deleted = true;
+    });
+    if (deleted) {
+      await this.show(this.route, {
+        flash: "Note deleted.",
+        keepQuery: true,
+        focus: "#search",
+      });
+      return;
+    }
+    this.render();
+  }
+
+  // Redactions --------------------------------------------------------------
+
+  private patientRedactionsTab(patient: PatientView): Node[] {
+    const overrides = new Set(this.mappings.map(redactionKey));
+    return [
+      h(
+        "p",
+        { class: "notice" },
+        `Applied automatically to new notes for ${patient.name}. These take precedence over the `,
+        h(
+          "button",
+          {
+            type: "button",
+            class: "link-button",
+            "data-all-redactions": true,
+            onclick: () => void this.navigate({ name: "redactions" }),
+          },
+          plural(this.mappings.length, "all-patients redaction"),
+        ),
+        ", which also apply.",
+      ),
+      ...this.redactionList(
+        this.patientMappings,
+        "patient",
+        overrides,
+        "While you review a note for this patient, choose to save a replacement and it will appear here.",
+      ),
+    ];
+  }
+  private redactionsScreen(): Node[] {
+    return [
+      pageHeader({
+        eyebrow: "Reusable defaults",
+        title: ["Redactions"],
+        id: "redactions-title",
+        description:
+          "Applied automatically to new notes for every patient. A patient’s own redactions take precedence.",
+      }),
+      this.errorNotice(),
+      this.flashNotice(),
+      ...this.redactionList(
+        this.mappings,
+        "global",
+        new Set(),
+        "While you review a note, choose to save a replacement for all patients and it will appear here.",
+      ),
+    ].filter((node): node is HTMLElement => node !== null);
+  }
+  /** Redactions are created during review and are never deleted here; the
+   * only change is the replacement text. */
+  private redactionList(
+    mappings: MappingView[],
+    scope: RedactionEdit["scope"],
+    overrides: Set<string>,
+    emptyText: string,
+  ): Node[] {
+    if (!mappings.length) return [emptyState("No redactions yet", emptyText)];
+    const query = this.redactionQuery.toLowerCase();
+    const shown = mappings.filter((mapping) =>
+      `${mapping.phrase} ${mapping.replacement}`.toLowerCase().includes(query),
+    );
+    const rows = shown.map((mapping) => {
+      const identifier = h(
+        "td",
+        {},
+        h("strong", {}, mapping.phrase),
+        overrides.has(redactionKey(mapping)) && " ",
+        overrides.has(redactionKey(mapping)) &&
+          h("span", { class: "badge" }, "Overrides all-patients"),
+      );
+      const category = h(
+        "td",
+        { class: "hide-narrow" },
+        categoryLabel(mapping.category),
+      );
+      const updated = h("td", { class: "mono" }, formatDate(mapping.updatedAt));
+      const edit = this.editing;
+      if (edit?.scope === scope && edit.id === mapping.id) {
+        const input = h("input", {
+          id: "redaction-edit",
+          class: "mono inline-input",
+          "data-redaction-input": true,
+          "data-select-on-focus": "true",
+          value: edit.value,
+          spellcheck: "false",
+          autocomplete: "off",
+          autocapitalize: "characters",
+          "aria-invalid": String(Boolean(edit.error)),
+          "aria-describedby": "redaction-edit-error",
+          oninput: (event: Event) => {
+            edit.value = (event.target as HTMLInputElement).value;
+          },
+          onkeydown: (event: Event) => {
+            if ((event as KeyboardEvent).key !== "Enter") return;
+            event.preventDefault();
+            void this.saveRedaction(mapping);
+          },
+        });
+        return h(
+          "tr",
+          { class: "edit-row" },
+          identifier,
+          h(
+            "td",
+            {},
+            h(
+              "label",
+              { class: "visually-hidden", for: "redaction-edit" },
+              `Replace ${mapping.phrase} with`,
+            ),
+            input,
+            h(
+              "span",
+              {
+                class: "error",
+                id: "redaction-edit-error",
+                role: "alert",
+                hidden: !edit.error,
+              },
+              edit.error,
+            ),
+          ),
+          category,
+          updated,
+          h(
+            "td",
+            { class: "actions" },
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button button--compact button--quiet",
+                "data-cancel-edit": true,
+                onclick: () => this.cancelEdit(),
+              },
+              "Cancel",
+            ),
+            " ",
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button button--compact",
+                "data-save-redaction": true,
+                onclick: () => void this.saveRedaction(mapping),
+              },
+              "Save",
+            ),
+          ),
+        );
+      }
+      return h(
+        "tr",
+        {},
+        identifier,
+        h("td", {}, h("span", { class: "placeholder" }, mapping.replacement)),
+        category,
+        updated,
+        h(
+          "td",
+          { class: "actions" },
+          h(
+            "button",
+            {
+              type: "button",
+              class: "button button--compact",
+              "data-edit-redaction": mapping.id,
+              disabled: this.busy,
+              onclick: () => this.startEdit(scope, mapping),
+            },
+            "Edit",
+          ),
+        ),
+      );
+    });
+    return [
+      toolbar(
+        searchForm({
+          label: "Search redactions",
+          placeholder: "Search identifiers and replacements",
+          value: this.redactionQuery,
+          onSearch: (value) => {
+            this.redactionQuery = value;
+            this.editing = null;
+            this.focusTarget = "#search";
+            this.render();
+          },
+        }),
+        searchStatus({
+          shown: shown.length,
+          total: mappings.length,
+          noun: "redaction",
+          query: this.redactionQuery,
+          onClear: () => {
+            this.redactionQuery = "";
+            this.focusTarget = "#search";
+            this.render();
+          },
+        }),
+      ),
+      dataTable(
+        [
+          { label: "Identifier" },
+          { label: "Replaced with" },
+          { label: "Category", narrow: true },
+          { label: "Updated" },
+          { label: "Actions", hidden: true },
+        ],
+        rows.length
+          ? rows
+          : [
+              h(
+                "tr",
+                {},
+                h(
+                  "td",
+                  { colspan: 5, class: "muted" },
+                  `No redactions match “${this.redactionQuery}”.`,
+                ),
+              ),
+            ],
+      ),
+    ];
+  }
+  private startEdit(scope: RedactionEdit["scope"], mapping: MappingView): void {
+    if (this.busy) return;
+    this.editing = {
+      scope,
+      id: mapping.id,
+      value: mapping.replacement,
+      error: "",
+    };
+    this.restoreFocus = `[data-edit-redaction="${mapping.id}"]`;
+    this.focusTarget = "#redaction-edit";
+    this.message = "";
+    this.render();
+  }
+  private cancelEdit(): void {
+    this.editing = null;
+    this.focusTarget = this.restoreFocus;
+    this.render();
+  }
+  private async saveRedaction(mapping: MappingView): Promise<void> {
+    const edit = this.editing;
+    if (!edit || this.busy) return;
+    const replacement = normalisePlaceholder(edit.value, mapping.replacement);
+    const error = placeholderError(replacement);
+    edit.value = replacement;
+    if (error) {
+      edit.error = error;
+      this.focusTarget = "#redaction-edit";
+      this.render();
+      return;
+    }
+    const result = await this.perform("Saving redaction…", () =>
+      edit.scope === "patient"
+        ? this.bridge.call<MappingView>("update_patient_mapping", {
+            patientId: this.patient!.id,
+            id: mapping.id,
+            replacement,
+          })
+        : this.bridge.call<MappingView>("update_mapping", {
+            id: mapping.id,
+            replacement,
+          }),
+    );
+    if (result) {
+      const replace = (list: MappingView[]) =>
+        list.map((item) => (item.id === result.id ? result : item));
+      if (edit.scope === "patient")
+        this.patientMappings = replace(this.patientMappings);
+      else this.mappings = replace(this.mappings);
+      this.editing = null;
+      this.message = "Redaction updated.";
+      this.focusTarget = this.restoreFocus;
+    } else {
+      edit.error = this.error;
+      this.error = "";
+      this.focusTarget = "#redaction-edit";
+    }
+    this.render();
+  }
+
+  // Settings ----------------------------------------------------------------
+
+  private settingsScreen(): Node[] {
+    const installed = this.model?.installed === true;
+    const status = !this.bridge.available
+      ? "Open the macOS app to manage the local model."
+      : installed
+        ? `${this.model!.name} · ${this.model!.revision} · installed`
+        : "The local model is not installed.";
+    const controls =
+      this.confirming === "model"
+        ? h(
+            "div",
+            { class: "notice notice--danger confirm", role: "alert" },
+            h(
+              "div",
+              {},
+              h("strong", {}, "Remove the local detection model?"),
+              " You can download the pinned model again later.",
+            ),
+            h(
+              "div",
+              { class: "page-actions" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button",
+                  "data-cancel-confirm": true,
+                  onclick: () => this.cancelConfirm(),
+                },
+                "Cancel",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button button--danger",
+                  "data-confirm-remove-model": true,
+                  onclick: () => void this.removeModel(),
+                },
+                "Remove model",
+              ),
+            ),
+          )
+        : h(
+            "div",
+            { class: "page-actions" },
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button",
+                "data-settings-install": true,
+                disabled: this.busy || !this.bridge.available,
+                onclick: () => void this.install(),
+              },
+              installed ? "Verify model" : "Download model",
+            ),
+            installed &&
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button",
+                  "data-settings-replace": true,
+                  onclick: () => void this.replaceModel(),
+                },
+                "Replace model",
+              ),
+            installed &&
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button button--danger-quiet",
+                  "data-settings-remove": true,
+                  "data-confirm-trigger": "model",
+                  onclick: () =>
+                    this.startConfirm("model", "[data-settings-remove]"),
+                },
+                "Remove model…",
+              ),
+          );
+    return [
+      pageHeader({
+        eyebrow: "Local configuration",
+        title: ["Settings"],
+        id: "settings-title",
+        description:
+          "Model files are the only files this app downloads. Source text is never included.",
+      }),
+      this.errorNotice(),
+      this.flashNotice(),
+      h(
+        "section",
+        { class: "panel", "aria-labelledby": "model-title" },
+        h(
+          "div",
+          {},
+          h(
+            "h2",
+            { class: "section-title", id: "model-title" },
+            "Local detection model",
+          ),
+          h("p", { class: "muted", "data-settings-model": true }, status),
+        ),
+        controls,
+      ),
+    ].filter((node): node is HTMLElement => node !== null);
+  }
+  private async removeModel(): Promise<void> {
+    this.confirming = null;
+    let removed = false;
+    await this.perform(
+      "Removing local model…",
+      async () => {
+        await this.bridge.call("remove_model");
+        removed = true;
+      },
+      "review",
+    );
+    if (removed) {
+      this.model = await this.bridge.call<ModelStatus>("model_status");
+      this.message = "Local model removed.";
+    }
+    this.focusTarget = "[data-settings-install]";
+    this.render();
+  }
+
+  // Review workspace --------------------------------------------------------
+
+  private renderReviewScreen(main: HTMLElement): void {
+    const patient = this.patient;
+    main.append(
+      breadcrumb([
+        {
+          label: "Patients",
+          onSelect: () => void this.navigate({ name: "patients" }),
+        },
+        ...(patient
+          ? [
+              {
+                label: patient.name,
+                onSelect: () =>
+                  void this.navigate({
+                    name: "patient",
+                    patientId: patient.id,
+                    tab: "notes",
+                  }),
+              },
+            ]
+          : []),
+        { label: this.savedTitle ?? "New note" },
+      ]),
+    );
+    if (this.discarding) main.append(this.discardConfirmation());
+    const section = h("section", {
+      class: "review-page",
+      "aria-labelledby": "review-title",
+    });
+    section.innerHTML = `
+      <header class="page-header"><div><p class="eyebrow" data-review-eyebrow></p><h1 class="page-title" id="review-title" tabindex="-1">De-identify text</h1><p class="muted">Find possible identifiers. Review each change. Keep the wording that matters.</p></div><div class="page-actions"><button type="button" class="button button--quiet" data-discard>Discard</button></div></header>
+      <section class="workflow-panel" aria-label="Text review stages"><ol class="stepper">${["Verify model", "Analyse", "Review", "Final check"].map((name, index) => `<li data-step><span class="step-number" data-step-number aria-hidden="true">${index + 1}</span> <span>${name}<span class="visually-hidden" data-step-status></span></span></li>`).join("")}</ol><p class="review-status" role="status" data-status></p><p class="review-error" role="alert" data-error></p></section>
+      <aside class="notice model-panel" data-model-panel aria-label="Local detection model"><div><strong data-model-title></strong><p data-model-description></p></div><button type="button" class="button" data-install>Open Settings</button></aside>
+      <p class="review-toolbar muted">Source text stays in this session. After the final check, you can save the reviewed note.</p>
+      <div data-workspace aria-busy="${this.busy}"></div>
+      <aside class="scope-note"><strong>What this check covers</strong><p>Identifier patterns and possible names, places and organisations. Initials, nicknames, misspellings and parts of organisation names can be missed; model proposals can include clinical terms. File paths and indirect identifying combinations are not checked in this version. Review the whole text, including unmarked phrases.</p></aside>`;
+    main.append(section);
+    this.el<HTMLElement>("[data-review-eyebrow]").textContent = `${
+      this.savedTitle ? "Editing note" : "New note"
+    } · ${patient?.name ?? "Choose a patient"}`;
+    this.bind("[data-discard]", () => this.discardClicked());
+    const ready = this.model?.installed === true;
+    this.el<HTMLElement>("[data-model-title]").textContent = ready
+      ? "Local detection is ready"
+      : "Set up local detection";
+    this.el<HTMLElement>("[data-model-description]").textContent = !this.bridge
+      .available
+      ? "Open the macOS app to download the model and process text. This browser preview does not run detection."
+      : ready
+        ? "Rules + BERT NER · English · Works offline"
+        : "Download BERT NER once (110 MB) from Hugging Face. Only model files are downloaded; source text is never sent.";
+    const install = this.el<HTMLButtonElement>("[data-install]");
+    install.disabled = this.busy || !this.bridge.available || !this.model;
+    install.hidden = ready;
+    install.onclick = () => void this.navigate({ name: "settings" });
+    this.el<HTMLElement>("[data-model-panel]").hidden = ready;
+    this.el<HTMLButtonElement>("[data-discard]").disabled = this.busy;
+    if (this.session) this.renderReview(this.session);
+    else this.renderInput(ready);
+  }
+  private discardConfirmation(): HTMLElement {
+    return h(
+      "div",
+      {
+        class: "notice notice--danger confirm discard-confirm",
+        role: "alert",
+        "data-discard-confirm": true,
+      },
+      h(
+        "div",
+        {},
+        h("strong", {}, "Discard this session?"),
+        " The source text and review decisions will be cleared.",
+      ),
+      h(
+        "div",
+        { class: "page-actions" },
+        h(
+          "button",
+          {
+            type: "button",
+            class: "button",
+            "data-stay": true,
+            onclick: () => this.stay(),
+          },
+          "Keep reviewing",
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            class: "button button--danger",
+            "data-confirm": true,
+            onclick: () => void this.confirmLeave(),
+          },
+          "Discard session",
+        ),
+      ),
+    );
   }
   private progressPercent(): number | null {
     const progress = this.workProgress;
@@ -178,26 +1851,6 @@ export class TextReviewPage {
               ? "Current step"
               : "Upcoming";
       });
-    const running =
-      this.initialising ||
-      (this.busy &&
-        ["download", "analysis", "rescan"].includes(this.work ?? ""));
-    const progress = this.el<HTMLProgressElement>("[data-progress]");
-    progress.hidden = !running;
-    const percentage = this.cancelling ? null : this.progressPercent();
-    if (percentage === null) progress.removeAttribute("value");
-    else progress.value = percentage;
-    progress.setAttribute(
-      "aria-label",
-      this.work === "download"
-        ? "Model download progress"
-        : this.work === "rescan"
-          ? "Final check progress"
-          : "Analysis progress",
-    );
-    this.el<HTMLButtonElement>("[data-cancel]").hidden =
-      !running || this.initialising;
-    this.el<HTMLButtonElement>("[data-cancel]").disabled = this.cancelling;
     const guidance = !this.bridge.available
       ? "Open the macOS app to start local processing."
       : this.initialising
@@ -209,580 +1862,16 @@ export class TextReviewPage {
             : current === 2
               ? "Review the yellow cards. Green cards have a decision."
               : checked
-                ? "Final check complete. Reviewed text is ready to copy."
+                ? "Final check complete. Save the reviewed note or copy it."
                 : "Decisions complete. Run the final check before copying.";
     this.el<HTMLElement>("[data-status]").textContent =
       this.message || guidance;
-    this.el<HTMLElement>("[data-work-detail]").textContent = running
-      ? this.cancelling
-        ? "Waiting for the current local operation to stop."
-        : this.workProgress &&
-            this.work !== "download" &&
-            this.workProgress.total > 0
-          ? `Section ${Math.min(this.workProgress.completed, this.workProgress.total)} of ${this.workProgress.total} · Processing on this Mac`
-          : this.work === "download"
-            ? "Downloading model files only; source text stays on this Mac."
-            : "Processing on this Mac. Loading can take a moment."
-      : "";
-  }
-  private render(): void {
-    // A model-status reply must not replace an open confirmation dialog.
-    if (this.disposed || this.dismissDiscard) return;
-    if (this.screen === "notes") {
-      this.renderNotes();
-      return;
-    }
-    if (this.screen === "patients") {
-      this.renderPatients();
-      return;
-    }
-    if (this.screen === "mappings") {
-      this.renderMappings();
-      return;
-    }
-    if (this.screen === "settings") {
-      this.renderSettings();
-      return;
-    }
-    this.root.innerHTML = `
-      <section class="review-page" aria-labelledby="review-title">
-        <nav class="review-nav" aria-label="Application"><button type="button" data-home>← Home</button><button type="button" data-route="patients">Patients</button><button type="button" data-route="notes">Notes</button><button type="button" data-route="mappings">Mappings</button><button type="button" data-route="settings">Settings</button><span class="local-indicator">On this Mac</span></nav>
-        <header class="review-heading"><div><p class="eyebrow">${this.savedTitle ? `Editing note · ${this.patient?.name ?? "Patient"}` : `New note · ${this.patient?.name ?? "Choose a patient"}`}</p><h1 id="review-title">De-identify text</h1><p>Find possible identifiers. Review each change. Keep the wording that matters.</p></div><button type="button" data-discard>Discard session</button></header>
-        <section class="workflow-panel" aria-label="Text review stages"><ol class="workflow-steps">${["Verify model", "Analyse", "Review", "Final check"].map((name, index) => `<li data-step><span class="step-number" data-step-number aria-hidden="true">${index + 1}</span><span>${name}<span class="visually-hidden" data-step-status></span></span></li>`).join("")}</ol><div class="workflow-activity"><div><p class="review-status" role="status" data-status></p><p class="work-detail" data-work-detail></p></div><button type="button" data-cancel hidden>Cancel processing</button></div><progress data-progress max="100" hidden></progress><p class="review-error" role="alert" data-error></p></section>
-        <aside class="model-panel" data-model-panel aria-label="Local detection model"><div><strong data-model-title></strong><p data-model-description></p></div><button type="button" data-install>Open Settings</button></aside>
-        <div class="review-toolbar"><p>Source text stays in this session. After the final check, you can save the reviewed note.</p></div>
-        <div data-workspace aria-busy="${this.busy}"></div>
-        <aside class="scope-note"><strong>What this check covers</strong><p>Identifier patterns and possible names, places and organisations. Initials, nicknames, misspellings and parts of organisation names can be missed; model proposals can include clinical terms. File paths and indirect identifying combinations are not checked in this version. Review the whole text, including unmarked phrases.</p></aside>
-      </section>${this.overlayMarkup()}`;
-    this.bind("[data-home]", () => {
-      void this.leave(true);
-    });
-    this.bind("[data-discard]", () => {
-      void this.leave(false);
-    });
-    this.bind("[data-cancel]", () => {
-      void this.cancel();
-    });
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-route]")
-      .forEach((button) =>
-        button.addEventListener(
-          "click",
-          () => void this.navigate(button.dataset.route as Screen),
-        ),
-      );
-    this.root
-      .querySelector<HTMLButtonElement>("[data-overlay-cancel]")
-      ?.addEventListener("click", () => void this.cancel());
-    const ready = this.model?.installed === true;
-    this.el<HTMLElement>("[data-model-title]").textContent = ready
-      ? "Local detection is ready"
-      : "Set up local detection";
-    this.el<HTMLElement>("[data-model-description]").textContent = !this.bridge
-      .available
-      ? "Open the macOS app to download the model and process text. This browser preview does not run detection."
-      : ready
-        ? "Rules + BERT NER · English · Works offline"
-        : "Download BERT NER once (110 MB) from Hugging Face. Only model files are downloaded; source text is never sent.";
-    this.el<HTMLButtonElement>("[data-install]").textContent = "Open Settings";
-    this.el<HTMLButtonElement>("[data-install]").disabled =
-      this.busy || !this.bridge.available || !this.model;
-    this.el<HTMLButtonElement>("[data-install]").hidden = ready;
-    this.el<HTMLElement>("[data-model-panel]").hidden = ready;
-    this.el<HTMLButtonElement>("[data-install]").onclick = () =>
-      void this.navigate("settings");
-    this.el<HTMLButtonElement>("[data-home]").disabled = this.busy;
-    this.el<HTMLButtonElement>("[data-discard]").disabled = this.busy;
-    if (this.session) this.renderReview(this.session);
-    else this.renderInput(ready);
-    this.updateStatus();
-  }
-  private navigation(): string {
-    return `<nav class="review-nav" aria-label="Application"><button type="button" data-home>← Home</button><button type="button" data-route="patients">Patients</button><button type="button" data-route="notes">Notes</button><button type="button" data-route="mappings">Mappings</button><button type="button" data-route="settings">Settings</button><span class="local-indicator">On this Mac</span></nav>`;
-  }
-  private overlayMarkup(): string {
-    return `<div class="operation-overlay" data-overlay hidden><section role="status" aria-live="polite"><p class="eyebrow">Working locally</p><h2 data-overlay-title></h2><p data-overlay-detail></p><progress data-overlay-progress max="100"></progress><button type="button" data-overlay-cancel>Cancel</button></section></div>`;
-  }
-  private bindNavigation(): void {
-    this.bind("[data-home]", () => void this.leave(true));
-    this.root
-      .querySelectorAll<HTMLButtonElement>("[data-route]")
-      .forEach((button) =>
-        button.addEventListener(
-          "click",
-          () => void this.navigate(button.dataset.route as Screen),
-        ),
-      );
-    this.root
-      .querySelector<HTMLButtonElement>("[data-overlay-cancel]")
-      ?.addEventListener("click", () => void this.cancel());
-  }
-  private updateOverlay(): void {
-    const overlay = this.root.querySelector<HTMLElement>("[data-overlay]");
-    if (!overlay) return;
-    const workspace = this.root.querySelector<HTMLElement>(".review-page");
-    if (workspace) workspace.inert = this.busy;
-    overlay.hidden = !this.busy;
-    if (!this.busy) return;
-    overlay.querySelector<HTMLElement>("[data-overlay-title]")!.textContent =
-      this.message || "Working locally";
-    overlay.querySelector<HTMLElement>("[data-overlay-detail]")!.textContent =
-      this.cancelling
-        ? "Waiting for the current operation to stop."
-        : this.workProgress && this.workProgress.total > 0
-          ? `${Math.floor(this.progressPercent() ?? 0)}% complete`
-          : "This stays on this Mac.";
-    const progress = overlay.querySelector<HTMLProgressElement>(
-      "[data-overlay-progress]",
-    )!;
-    const percentage = this.progressPercent();
-    if (percentage === null) progress.removeAttribute("value");
-    else progress.value = percentage;
-    const cancellable = ["download", "analysis", "rescan"].includes(
-      this.work ?? "",
-    );
-    const cancel = overlay.querySelector<HTMLButtonElement>(
-      "[data-overlay-cancel]",
-    )!;
-    cancel.hidden = !cancellable;
-    cancel.disabled = this.cancelling;
-  }
-  private async navigate(screen: Screen): Promise<void> {
-    if (this.busy || this.disposed) return;
-    if (screen === "review" && !this.patient) {
-      this.error = "Choose a patient before starting a new note.";
-      this.screen = "patients";
-      await this.loadPatients();
-      return;
-    }
-    this.screen = screen;
-    this.error = "";
-    if (screen === "patients") await this.loadPatients();
-    if (screen === "notes") await this.loadNotes();
-    if (screen === "mappings") await this.loadMappings();
-    if (screen === "settings" && this.bridge.available) {
-      try {
-        this.model = await this.bridge.call<ModelStatus>("model_status");
-      } catch {
-        this.error = "Model status is unavailable. Try again.";
-      }
-    }
-    this.render();
-  }
-  private renderPatients(): void {
-    this.root.innerHTML = `<section class="review-page library-page" aria-labelledby="patients-title">${this.navigation()}<header class="review-heading"><div><p class="eyebrow">Patient workspace</p><h1 id="patients-title">Patients</h1><p>Choose a patient before creating a new note.</p></div><button type="button" class="primary" data-add-patient>Add patient</button></header><p class="review-error" data-error role="alert"></p><section data-patient-list></section></section>${this.overlayMarkup()}`;
-    this.bindNavigation();
-    this.el<HTMLElement>("[data-error]").textContent = this.error;
-    this.el<HTMLButtonElement>("[data-add-patient]").onclick = () =>
-      this.addPatientDialog();
-    const list = this.el<HTMLElement>("[data-patient-list]");
-    if (!this.patients.length)
-      list.innerHTML = `<p class="empty-state">Add a patient to create their first note.</p>`;
-    else {
-      const table = document.createElement("table");
-      table.className = "notes-table patients-table";
-      table.innerHTML = `<thead><tr><th>Patient</th><th>Patient number</th><th><span class="visually-hidden">Actions</span></th></tr></thead>`;
-      const body = document.createElement("tbody");
-      for (const patient of this.patients) {
-        const row = document.createElement("tr");
-        row.innerHTML = `<td></td><td></td><td></td>`;
-        row.cells[0].textContent = patient.name;
-        row.cells[1].textContent = patient.patientReference ?? "—";
-        const start = document.createElement("button");
-        start.type = "button";
-        start.textContent = "New note";
-        start.onclick = () => this.startNote(patient);
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.textContent = "Delete";
-        remove.onclick = () => void this.removePatient(patient);
-        row.cells[2].append(start, remove);
-        body.append(row);
-      }
-      table.append(body);
-      list.append(table);
-    }
-    this.updateOverlay();
-  }
-  private async loadPatients(): Promise<void> {
-    const result = await this.perform("Loading patients…", () =>
-      this.bridge.call<PatientView[]>("list_patients"),
-    );
-    if (result) this.patients = result;
-    this.render();
-  }
-  private async createPatient(
-    name: string,
-    patientReference: string | undefined,
-  ): Promise<void> {
-    const result = await this.perform("Adding patient…", () =>
-      this.bridge.call<PatientView>("create_patient", {
-        name,
-        patientReference,
-      }),
-    );
-    if (result) {
-      this.startNote(result);
-      return;
-    } else this.screen = "patients";
-    this.render();
-  }
-  private addPatientDialog(): void {
-    const dialog = document.createElement("dialog");
-    dialog.setAttribute("aria-labelledby", "add-patient-title");
-    dialog.innerHTML = `<form method="dialog" class="save-note-form"><h2 id="add-patient-title">Add patient</h2><label>Patient name <input data-patient-name autocomplete="off" required maxlength="160" /></label><label>Patient number <input data-patient-reference autocomplete="off" maxlength="128" /></label><p class="review-error" data-patient-error role="alert"></p><div class="decision-buttons"><button type="button" data-cancel-patient>Cancel</button><button class="primary">Add patient</button></div></form>`;
-    this.root.append(dialog);
-    const close = () => {
-      dialog.close();
-      dialog.remove();
-    };
-    dialog.querySelector<HTMLButtonElement>("[data-cancel-patient]")!.onclick =
-      close;
-    dialog
-      .querySelector<HTMLFormElement>("form")!
-      .addEventListener("submit", (event) => {
-        event.preventDefault();
-        const name = dialog.querySelector<HTMLInputElement>(
-          "[data-patient-name]",
-        )!.value;
-        const reference = dialog.querySelector<HTMLInputElement>(
-          "[data-patient-reference]",
-        )!.value;
-        void this.createPatient(name, reference || undefined).then(() => {
-          if (this.screen === "review") close();
-        });
-      });
-    dialog.showModal();
-    dialog.querySelector<HTMLInputElement>("[data-patient-name]")!.focus();
-  }
-  private startNote(patient: PatientView): void {
-    this.patient = patient;
-    this.screen = "review";
-    this.source = "";
-    this.session = null;
-    this.savedTitle = null;
-    this.reviewSavedMappings = false;
-    this.wizardGroup = null;
-    this.wizardGroupIds = [];
-    this.selection = null;
-    this.drafts.clear();
-    if (this.bridge.available)
-      void this.bridge.call("discard_session").catch(() => undefined);
-    this.render();
-  }
-  private renderNotes(): void {
-    this.root.innerHTML = `<section class="review-page library-page" aria-labelledby="notes-title">${this.navigation()}<header class="review-heading"><div><p class="eyebrow">Encrypted library</p><h1 id="notes-title">Notes</h1><p>Search reviewed text and open a saved note in the review workspace.</p></div><button type="button" class="primary" data-new-note>New note</button></header><form class="library-search" data-note-search><label for="note-search">Search notes</label><div><input id="note-search" autocomplete="off" /><button class="primary">Search</button></div></form><p class="review-error" role="alert" data-error></p><section data-note-results aria-live="polite"></section></section>${this.overlayMarkup()}`;
-    this.bindNavigation();
-    this.el<HTMLElement>("[data-error]").textContent = this.error;
-    this.el<HTMLButtonElement>("[data-new-note]").onclick = () =>
-      void this.navigate("patients");
-    this.el<HTMLInputElement>("#note-search").value = this.noteQuery;
-    this.root
-      .querySelector<HTMLFormElement>("[data-note-search]")!
-      .addEventListener("submit", (event) => {
-        event.preventDefault();
-        this.noteQuery = this.el<HTMLInputElement>("#note-search").value;
-        void this.loadNotes();
-      });
-    const results = this.el<HTMLElement>("[data-note-results]");
-    if (!this.notes.length) {
-      results.innerHTML = `<p class="empty-state">No reviewed notes match this search.</p>`;
-    } else {
-      const table = document.createElement("table");
-      table.className = "notes-table";
-      table.innerHTML = `<thead><tr><th>Patient</th><th>Patient number</th><th>Note title</th><th>Reviewed note</th><th><span class="visually-hidden">Actions</span></th></tr></thead>`;
-      const body = document.createElement("tbody");
-      for (const note of this.notes) {
-        const row = document.createElement("tr");
-        row.innerHTML = `<td></td><td></td><td></td><td></td><td></td>`;
-        row.cells[0].textContent = note.patientName ?? "Patient unavailable";
-        row.cells[1].textContent = note.patientReference ?? "—";
-        row.cells[2].textContent = note.title;
-        row.cells[3].textContent = note.snippet
-          .replaceAll("[", "")
-          .replaceAll("]", "");
-        const open = document.createElement("button");
-        open.type = "button";
-        open.textContent = "Open";
-        open.onclick = () => void this.openNote(note.id);
-        row.cells[4].append(open);
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.textContent = "Delete";
-        remove.onclick = () => void this.removeNote(note.id);
-        row.cells[4].append(remove);
-        body.append(row);
-      }
-      table.append(body);
-      results.append(table);
-    }
-    this.updateOverlay();
-  }
-  private renderMappings(): void {
-    const patientScope = this.patient
-      ? `<option value="patient">This patient · ${this.patient.name}</option>`
-      : "";
-    this.root.innerHTML = `<section class="review-page library-page" aria-labelledby="mappings-title">${this.navigation()}<header class="review-heading"><div><p class="eyebrow">Reusable defaults</p><h1 id="mappings-title">Identifier mappings</h1><p>Saved mappings apply automatically on new notes. Choose Review saved mappings before analysing when you want to decide them again.</p></div></header><form class="mapping-form" data-mapping-form><label>Identifier <input data-mapping-phrase autocomplete="off" required /></label><label>Category <select data-mapping-category>${["PERSON", "LOCATION", "ORGANISATION", "MISC", "EMAIL", "PHONE", "POSTCODE", "NHS_NUMBER", "NI_NUMBER", "URL", "DATE", "CASE_REFERENCE", "MANUAL"].map((category) => `<option>${category}</option>`).join("")}</select></label><label>Placeholder <input data-mapping-replacement spellcheck="false" autocomplete="off" required /></label><label>Scope <select data-mapping-editor-scope><option value="global">All patients</option>${patientScope}</select></label><div class="decision-buttons"><button class="primary" data-save-mapping>Save mapping</button><button type="button" data-cancel-mapping hidden>Cancel edit</button></div></form><p class="review-error" role="alert" data-error></p><section class="library-list" data-mapping-list></section></section>${this.overlayMarkup()}`;
-    this.bindNavigation();
-    this.el<HTMLElement>("[data-error]").textContent = this.error;
-    const phrase = this.el<HTMLInputElement>("[data-mapping-phrase]");
-    const category = this.el<HTMLSelectElement>("[data-mapping-category]");
-    const replacement = this.el<HTMLInputElement>("[data-mapping-replacement]");
-    const scope = this.el<HTMLSelectElement>("[data-mapping-editor-scope]");
-    if (this.editingMapping) {
-      phrase.value = this.editingMapping.phrase;
-      category.value = this.editingMapping.category;
-      replacement.value = this.editingMapping.replacement;
-      scope.value = this.editingPatientMapping ? "patient" : "global";
-      scope.disabled = true;
-      this.el<HTMLButtonElement>("[data-cancel-mapping]").hidden = false;
-    }
-    this.root
-      .querySelector<HTMLFormElement>("[data-mapping-form]")!
-      .addEventListener("submit", (event) => {
-        event.preventDefault();
-        void this.saveMapping(
-          phrase.value,
-          category.value,
-          replacement.value,
-          scope.value === "patient",
-        );
-      });
-    this.el<HTMLButtonElement>("[data-cancel-mapping]").onclick = () => {
-      this.editingMapping = null;
-      this.editingPatientMapping = false;
-      this.renderMappings();
-    };
-    const list = this.el<HTMLElement>("[data-mapping-list]");
-    if (!this.mappings.length && !this.patientMappings.length)
-      list.innerHTML = `<p class="empty-state">No saved defaults yet.</p>`;
-    const renderList = (
-      mappings: MappingView[],
-      heading: string,
-      patientScope: boolean,
-    ) => {
-      if (!mappings.length) return;
-      const title = document.createElement("h2");
-      title.textContent = heading;
-      list.append(title);
-      for (const mapping of mappings) {
-        const row = document.createElement("article");
-        row.className = "library-row";
-        const summary = document.createElement("p");
-        summary.textContent = `${mapping.phrase} → ${mapping.replacement} · ${mapping.category.toLowerCase().replaceAll("_", " ")}`;
-        const actions = document.createElement("div");
-        actions.className = "decision-buttons";
-        const edit = document.createElement("button");
-        edit.type = "button";
-        edit.textContent = "Edit";
-        edit.onclick = () => {
-          this.editingMapping = mapping;
-          this.editingPatientMapping = patientScope;
-          this.renderMappings();
-        };
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.textContent = "Delete";
-        remove.onclick = () =>
-          void this.removeMapping(mapping.id, patientScope);
-        actions.append(edit, remove);
-        row.append(summary, actions);
-        list.append(row);
-      }
-    };
-    renderList(this.mappings, "All patients", false);
-    if (this.patient)
-      renderList(
-        this.patientMappings,
-        `This patient · ${this.patient.name}`,
-        true,
-      );
-    this.updateOverlay();
-  }
-  private renderSettings(): void {
-    const installed = this.model?.installed === true;
-    this.root.innerHTML = `<section class="review-page library-page" aria-labelledby="settings-title">${this.navigation()}<header class="review-heading"><div><p class="eyebrow">Local configuration</p><h1 id="settings-title">Settings</h1><p>Model files are the only files this app downloads. Source text is never included.</p></div></header><section class="settings-card"><h2>Local detection model</h2><p data-settings-model></p><div class="decision-buttons"><button type="button" data-settings-install>${installed ? "Verify / repair" : "Download model"}</button><button type="button" data-settings-replace ${installed ? "" : "hidden"}>Replace model</button><button type="button" data-settings-remove ${installed ? "" : "hidden"}>Remove model</button></div></section><p class="review-error" role="alert" data-error></p></section>${this.overlayMarkup()}`;
-    this.bindNavigation();
-    this.el<HTMLElement>("[data-settings-model]").textContent = !this.bridge
-      .available
-      ? "Open the macOS app to manage the local model."
-      : installed
-        ? `${this.model!.name} · ${this.model!.revision} · installed`
-        : "The local model is not installed.";
-    this.el<HTMLElement>("[data-error]").textContent = this.error;
-    this.el<HTMLButtonElement>("[data-settings-install]").disabled =
-      this.busy || !this.bridge.available;
-    this.el<HTMLButtonElement>("[data-settings-install]").onclick = () =>
-      void this.install();
-    this.el<HTMLButtonElement>("[data-settings-replace]").onclick = () =>
-      void this.replaceModel();
-    this.el<HTMLButtonElement>("[data-settings-remove]").onclick = () =>
-      void this.removeModel();
-    this.updateOverlay();
-  }
-  private async loadNotes(): Promise<void> {
-    const result = await this.perform("Searching notes…", () =>
-      this.bridge.call<NoteSummary[]>("search_notes", {
-        query: this.noteQuery,
-      }),
-    );
-    if (result) this.notes = result;
-    this.render();
-  }
-  private async openNote(id: number): Promise<void> {
-    const result = await this.perform("Opening saved note…", () =>
-      this.bridge.call<OpenedNote>("open_saved_note", { id }),
-    );
-    if (result) {
-      this.savedTitle = result.note.title;
-      this.patient = {
-        id: result.note.patientId!,
-        name: result.note.patientName ?? "Patient unavailable",
-        patientReference: result.note.patientReference,
-      };
-      this.source = result.session.source;
-      this.session = result.session;
-      this.wizardGroup = null;
-      this.screen = "review";
-    }
-    this.render();
-  }
-  private async removeNote(id: number): Promise<void> {
-    if (!(await this.confirmDeletion("note"))) return;
-    let deleted = false;
-    await this.perform("Deleting note…", async () => {
-      await this.bridge.call("delete_note", { id });
-      deleted = true;
-    });
-    if (deleted) {
-      await this.loadNotes();
-      return;
-    }
-    this.render();
-  }
-  private async removePatient(patient: PatientView): Promise<void> {
-    if (!(await this.confirmDeletion("patient"))) return;
-    let deleted = false;
-    await this.perform("Deleting patient…", async () => {
-      await this.bridge.call("delete_patient", { id: patient.id });
-      deleted = true;
-    });
-    if (deleted) {
-      if (this.patient?.id === patient.id) {
-        this.patient = null;
-        this.patientMappings = [];
-      }
-      await this.loadPatients();
-      return;
-    }
-    this.render();
-  }
-  private confirmDeletion(subject: "note" | "patient"): Promise<boolean> {
-    return new Promise((resolve) => {
-      const dialog = document.createElement("dialog");
-      dialog.className = "save-note-dialog deletion-dialog";
-      dialog.setAttribute("aria-labelledby", "delete-confirmation-title");
-      const consequence =
-        subject === "patient"
-          ? "Their reviewed notes and patient-specific mappings will also be deleted from the encrypted library."
-          : "The original text, reviewed text, and review record will be deleted from the encrypted library.";
-      dialog.innerHTML = `<form method="dialog" class="save-note-form"><header><p class="eyebrow">Encrypted library</p><h2 id="delete-confirmation-title">Delete ${subject}?</h2></header><p>Are you really sure you want to delete this?</p><p class="field-hint">${consequence}</p><footer class="dialog-actions"><button type="button" data-cancel-delete>Cancel</button><button type="button" class="primary" data-confirm-delete>Delete ${subject}</button></footer></form>`;
-      this.root.append(dialog);
-      const finish = (confirmed: boolean) => {
-        dialog.close();
-        dialog.remove();
-        resolve(confirmed);
-      };
-      dialog.querySelector<HTMLButtonElement>("[data-cancel-delete]")!.onclick =
-        () => finish(false);
-      dialog.querySelector<HTMLButtonElement>(
-        "[data-confirm-delete]",
-      )!.onclick = () => finish(true);
-      dialog.addEventListener("cancel", () => finish(false), { once: true });
-      dialog.showModal();
-      dialog.querySelector<HTMLButtonElement>("[data-cancel-delete]")!.focus();
-    });
-  }
-  private async loadMappings(): Promise<void> {
-    const result = await this.perform("Loading mappings…", async () => {
-      const mappings = await this.bridge.call<MappingView[]>("list_mappings");
-      const patientMappings = this.patient
-        ? await this.bridge.call<MappingView[]>("list_patient_mappings", {
-            patientId: this.patient.id,
-          })
-        : [];
-      return { mappings, patientMappings };
-    });
-    if (result) {
-      this.mappings = result.mappings;
-      this.patientMappings = result.patientMappings;
-    }
-    this.render();
-  }
-  private async saveMapping(
-    phrase: string,
-    category: string,
-    replacement: string,
-    patientScope: boolean,
-  ): Promise<void> {
-    const scopedToPatient = this.editingMapping
-      ? this.editingPatientMapping
-      : patientScope;
-    if (scopedToPatient && !this.patient) {
-      this.error =
-        "Choose a patient before creating a patient-specific mapping.";
-      this.render();
-      return;
-    }
-    const command = this.editingMapping
-      ? scopedToPatient
-        ? "update_patient_mapping"
-        : "update_mapping"
-      : scopedToPatient
-        ? "create_patient_mapping"
-        : "create_mapping";
-    const args = {
-      ...(scopedToPatient ? { patientId: this.patient!.id } : {}),
-      ...(this.editingMapping ? { id: this.editingMapping.id } : {}),
-      phrase,
-      category,
-      replacement,
-    };
-    const result = await this.perform("Saving mapping…", () =>
-      this.bridge.call<MappingView>(command, args),
-    );
-    if (result) {
-      this.editingMapping = null;
-      this.editingPatientMapping = false;
-      await this.loadMappings();
-      return;
-    }
-    this.render();
-  }
-  private async removeMapping(
-    id: number,
-    patientScope: boolean,
-  ): Promise<void> {
-    if (!window.confirm("Delete this reusable mapping?")) return;
-    let deleted = false;
-    await this.perform("Deleting mapping…", async () => {
-      await this.bridge.call(
-        patientScope ? "delete_patient_mapping" : "delete_mapping",
-        patientScope ? { id, patientId: this.patient!.id } : { id },
-      );
-      deleted = true;
-    });
-    if (deleted) {
-      await this.loadMappings();
-      return;
-    }
-    this.render();
   }
   private renderInput(ready: boolean): void {
     this.el("[data-workspace]").innerHTML =
-      `<section class="input-panel"><div class="pane-heading"><label for="source-input">Source text</label><button type="button" data-example>Use synthetic example</button></div>
+      `<section class="input-panel"><div class="pane-heading"><label for="source-input">Source text</label><button type="button" class="button button--compact" data-example>Use synthetic example</button></div>
       <textarea id="source-input" rows="12" placeholder="Type or paste the text you want to review…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off" aria-describedby="source-count"></textarea>
-      <div class="pane-footer"><span id="source-count"></span><label class="review-saved-option"><input type="checkbox" data-review-saved-mappings /> Review saved mappings</label><button type="button" class="primary" data-detect>Find identifiers</button></div></section>`;
+      <div class="pane-footer"><span id="source-count"></span><label class="review-saved-option"><input type="checkbox" data-review-saved-mappings /> Review saved redactions</label><button type="button" class="button button--primary" data-detect>Find identifiers</button></div></section>`;
     const input = this.el<HTMLTextAreaElement>("#source-input");
     input.value = this.source;
     input.disabled = this.busy;
@@ -820,12 +1909,13 @@ export class TextReviewPage {
   }
   private renderReview(session: ReviewSession): void {
     this.el("[data-workspace]").innerHTML = `
-      <section class="review-wizard" aria-labelledby="wizard-title"><header class="wizard-heading"><div><p class="eyebrow">Focused review</p><h2 id="wizard-title">Review one item at a time</h2></div><div class="wizard-navigation"><button type="button" data-wizard-previous>Previous</button><p class="wizard-count" data-wizard-count></p><button type="button" data-wizard-next>Next</button></div></header><div class="wizard-progress"><progress data-review-progress></progress><p data-wizard-progress></p></div><div data-wizard-card></div></section>
-      <section class="review-actions-bar" aria-label="Reviewed note actions"><p data-summary></p><div class="completion-actions"><button type="button" data-rescan-top>Check reviewed text</button><button type="button" data-save-note-top>Save reviewed note</button><button type="button" class="primary" data-copy-top>Copy reviewed text</button></div></section>
-      <div class="review-panes"><section class="text-pane"><div class="pane-heading"><h2>Source text</h2><span>Original wording</span></div><div class="note-text" data-source tabindex="0" aria-label="Source text; select a missed identifiable detail to add to review"></div><div class="selection-menu" data-selection-menu hidden role="menu" aria-label="Selected text actions"><button type="button" data-manual role="menuitem">Add to review</button><button type="button" data-cancel-selection role="menuitem">Cancel</button></div></section>
+      <section class="review-wizard" aria-labelledby="wizard-title"><header class="wizard-heading"><div><p class="eyebrow">Focused review</p><h2 class="section-title" id="wizard-title">Review one item at a time</h2></div><div class="wizard-navigation"><button type="button" class="button button--compact" data-wizard-previous>Previous</button><p class="wizard-count" data-wizard-count></p><button type="button" class="button button--compact" data-wizard-next>Next</button></div></header><div class="wizard-progress"><progress data-review-progress></progress><p data-wizard-progress></p></div><div data-wizard-card></div></section>
+      <section class="review-actions-bar" aria-label="Reviewed note actions"><p data-summary></p><div class="completion-actions"><button type="button" class="button" data-rescan-top>Check reviewed text</button><button type="button" class="button" data-save-note-top>Save reviewed note</button><button type="button" class="button" data-copy-top>Copy reviewed text</button></div></section>
+      <div class="review-panes"><section class="text-pane"><div class="pane-heading"><h2>Source text</h2><span>Original wording</span></div><div class="note-text" data-source tabindex="0" aria-label="Source text; select a missed identifiable detail to add to review"></div><div class="selection-menu" data-selection-menu hidden role="menu" aria-label="Selected text actions"><button type="button" class="button button--compact" data-manual role="menuitem">Add to review</button><button type="button" class="button button--compact" data-cancel-selection role="menuitem">Cancel</button></div></section>
       <section class="text-pane"><div class="pane-heading"><h2>Proposed result</h2><span data-result-status></span></div><div class="note-text" data-output aria-label="Proposed result"></div></section></div>
       <section class="review-history" data-review-history><details data-resolved-items><summary data-resolved-summary></summary><div data-resolved-detections></div></details></section>
-      <footer class="review-completion"><div><p data-summary></p><small>Copying puts reviewed text on the system clipboard. Clipboard managers may retain it.</small></div><div class="completion-actions"><button type="button" data-rescan>Check reviewed text</button><button type="button" data-save-note>Save reviewed note</button><button type="button" class="primary" data-copy>Copy reviewed text</button></div></footer>`;
+      <section class="save-bar" aria-label="Save reviewed note"><div class="field"><label for="note-title">Note title</label><input id="note-title" data-note-title maxlength="160" autocomplete="off" aria-describedby="note-title-hint note-title-error" /><span class="hint" id="note-title-hint">Saved with the original text and every review decision in the encrypted library.</span><span class="error" id="note-title-error" role="alert" data-save-error></span></div><div class="page-actions"><button type="button" class="button" data-rescan>Check reviewed text</button><button type="button" class="button" data-copy>Copy reviewed text</button><button type="button" class="button button--primary" data-save-note>Save note</button></div></section>
+      <p class="review-completion"><small>Copying puts reviewed text on the system clipboard. Clipboard managers may retain it.</small></p>`;
     this.el<HTMLElement>("[data-result-status]").textContent = session.checked
       ? "Review checked"
       : "Awaiting review";
@@ -981,10 +2071,24 @@ export class TextReviewPage {
       void this.copy();
     });
     this.bind("[data-save-note]", () => {
-      void this.saveNoteDialog();
+      void this.saveNote();
     });
+    const title = this.el<HTMLInputElement>("[data-note-title]");
+    title.value = this.noteTitle ?? this.suggestNoteTitle(session.output);
+    title.disabled = this.busy;
+    title.addEventListener("input", () => {
+      this.noteTitle = title.value;
+      this.saveError = "";
+      this.el<HTMLElement>("[data-save-error]").textContent = "";
+    });
+    this.el<HTMLElement>("[data-save-error]").textContent = this.saveError;
+    this.el<HTMLButtonElement>("[data-save-note]").textContent = this.savedTitle
+      ? "Update note"
+      : "Save note";
     this.bind("[data-save-note-top]", () => {
-      void this.saveNoteDialog();
+      title.scrollIntoView?.({ block: "center" });
+      title.focus();
+      title.select();
     });
   }
   private groupNeedsAction(items: Detection[]): boolean {
@@ -1125,7 +2229,7 @@ export class TextReviewPage {
     const scopes = this.patient
       ? `<option value="patient" selected>This patient</option><option value="global">All patients</option>`
       : `<option value="global">All patients</option>`;
-    card.innerHTML = `<div class="detection-copy"><div class="detection-heading"><strong data-category></strong><span class="decision-state" data-decision></span></div><p class="phrase" data-phrase></p><p class="detection-reason" data-reason></p><div data-occurrences></div></div><div class="detection-controls"><label>Placeholder <input data-label spellcheck="false" autocomplete="off" autocapitalize="characters" aria-describedby="label-hint-${item.group} label-error-${item.group}" /></label><p class="label-hint" id="label-hint-${item.group}" data-label-hint></p><p class="label-error" id="label-error-${item.group}" data-label-error role="alert"></p><label class="save-default"><input type="checkbox" data-save-default checked /> <span data-save-default-label></span></label><label class="save-default">Save for <select data-mapping-scope>${scopes}</select></label><div class="decision-buttons"><button type="button" data-action="accept">Accept</button><button type="button" data-action="edit">Apply label</button><button type="button" data-action="keep">Keep</button><button type="button" data-action="remove">Remove</button></div></div>`;
+    card.innerHTML = `<div class="detection-copy"><div class="detection-heading"><strong data-category></strong><span class="decision-state" data-decision></span></div><p class="phrase" data-phrase></p><p class="detection-reason" data-reason></p><div data-occurrences></div></div><div class="detection-controls"><label>Placeholder <input data-label spellcheck="false" autocomplete="off" autocapitalize="characters" aria-describedby="label-hint-${item.group} label-error-${item.group}" /></label><p class="label-hint" id="label-hint-${item.group}" data-label-hint></p><p class="label-error" id="label-error-${item.group}" data-label-error role="alert"></p><label class="save-default"><input type="checkbox" data-save-default checked /> <span data-save-default-label></span></label><label class="save-default">Save for <select data-mapping-scope>${scopes}</select></label><div class="decision-buttons"><button type="button" class="button" data-action="accept">Accept</button><button type="button" class="button" data-action="edit">Apply label</button><button type="button" class="button" data-action="keep">Keep</button><button type="button" class="button" data-action="remove">Remove</button></div></div>`;
     card.querySelector<HTMLElement>("[data-category]")!.textContent =
       item.category.toLowerCase().replaceAll("_", " ");
     card.querySelector<HTMLElement>("[data-decision]")!.textContent =
@@ -1143,8 +2247,8 @@ export class TextReviewPage {
     )!;
     card.querySelector<HTMLElement>("[data-save-default-label]")!.textContent =
       item.stages.includes("library")
-        ? "Update this saved default"
-        : "Save this replacement as a reusable default";
+        ? "Update this saved redaction"
+        : "Save as a redaction";
     label.value = this.drafts.get(item.group) ?? item.replacement;
     label.disabled = this.busy;
     const updateLabel = () => {
@@ -1236,6 +2340,7 @@ export class TextReviewPage {
     for (const [index, occurrence] of items.entries()) {
       const find = document.createElement("button");
       find.type = "button";
+      find.className = "button button--compact";
       find.textContent = `Show ${index + 1}`;
       find.addEventListener("click", () => {
         this.select(occurrence.id, true);
@@ -1244,6 +2349,7 @@ export class TextReviewPage {
       if (items.length > 1) {
         const split = document.createElement("button");
         split.type = "button";
+        split.className = "button button--compact";
         split.disabled = this.busy;
         split.textContent = `Separate ${index + 1}`;
         split.addEventListener("click", () => {
@@ -1345,7 +2451,7 @@ export class TextReviewPage {
                 item.decision === "pending" && item.stages.includes("manual"),
             )?.group ?? null;
       if (saveDefault && command === "review_decision") {
-        const saved = await this.perform("Saving reusable default…", () =>
+        const saved = await this.perform("Saving redaction…", () =>
           this.bridge.call("save_mapping_from_review", {
             sessionId: result.id,
             revision: result.revision,
@@ -1353,7 +2459,7 @@ export class TextReviewPage {
             patientScope,
           }),
         );
-        if (saved !== undefined) this.message = "Reusable default saved.";
+        if (saved !== undefined) this.message = "Redaction saved.";
       }
       shouldAutoCheck =
         command === "review_decision" &&
@@ -1401,51 +2507,43 @@ export class TextReviewPage {
     if (copied) this.message = "Reviewed text copied.";
     this.render();
   }
-  private saveNoteDialog(): void {
+  private async saveNote(): Promise<void> {
     if (!this.session?.checked || this.busy) return;
-    const dialog = document.createElement("dialog");
-    dialog.className = "save-note-dialog";
-    dialog.setAttribute("aria-labelledby", "save-note-title");
-    dialog.innerHTML = `<form method="dialog" class="save-note-form"><header><p class="eyebrow">Encrypted note library</p><h2 id="save-note-title">${this.savedTitle ? "Update reviewed note" : "Save reviewed note"}</h2></header><p>The original text, reviewed text, selected patient, and every review decision are saved together in the encrypted library.</p><label>Note title <input data-note-title required maxlength="160" aria-describedby="note-title-hint" /></label><p class="field-hint" id="note-title-hint">A local suggestion is ready to edit before saving.</p><p class="review-error" data-save-error role="alert"></p><footer class="dialog-actions"><button type="button" data-cancel-save>Cancel</button><button class="primary" data-confirm-save>${this.savedTitle ? "Update note" : "Save reviewed note"}</button></footer></form>`;
-    this.root.append(dialog);
-    dialog.querySelector<HTMLInputElement>("[data-note-title]")!.value =
-      this.savedTitle ?? this.suggestNoteTitle(this.session.output);
-    const close = () => {
-      dialog.close();
-      dialog.remove();
-    };
-    dialog.querySelector<HTMLButtonElement>("[data-cancel-save]")!.onclick =
-      close;
-    dialog
-      .querySelector<HTMLFormElement>("form")!
-      .addEventListener("submit", (event) => {
-        event.preventDefault();
-        const title =
-          dialog.querySelector<HTMLInputElement>("[data-note-title]")!.value;
-        void this.saveNote(title, dialog, close);
-      });
-    dialog.showModal();
-    dialog.querySelector<HTMLInputElement>("[data-note-title]")!.focus();
-  }
-  private async saveNote(
-    title: string,
-    dialog: HTMLDialogElement,
-    close: () => void,
-  ): Promise<void> {
-    const result = await this.perform("Saving reviewed note…", () =>
-      this.bridge.call<NoteView>("save_reviewed_note", {
-        ...this.args(),
-        title,
-      }),
-    );
-    if (result) {
-      close();
-      await this.returnToPatients();
-    } else {
-      const error = dialog.querySelector<HTMLElement>("[data-save-error]");
-      if (error) error.textContent = this.error;
+    const title = (
+      this.noteTitle ?? this.suggestNoteTitle(this.session.output)
+    ).trim();
+    if (!title) {
+      this.saveError = "Add a title to save this note.";
+      this.focusTarget = "#note-title";
+      this.render();
+      return;
     }
-    this.render();
+    const updating = this.savedTitle !== null;
+    const result = await this.perform(
+      updating ? "Updating reviewed note…" : "Saving reviewed note…",
+      () =>
+        this.bridge.call<NoteView>("save_reviewed_note", {
+          ...this.args(),
+          title,
+        }),
+    );
+    if (!result) {
+      this.saveError = this.error;
+      this.error = "";
+      this.focusTarget = "#note-title";
+      this.render();
+      return;
+    }
+    const patient = this.patient;
+    // The note is committed; a failure to clear the native session must not
+    // strand the clinician in the review workspace.
+    await this.clearSession(true);
+    await this.show(
+      patient
+        ? { name: "patient", patientId: patient.id, tab: "notes" }
+        : { name: "patients" },
+      { flash: updating ? "Note updated." : "Note saved." },
+    );
   }
   private suggestNoteTitle(reviewedText: string): string {
     const cleaned = reviewedText
@@ -1466,24 +2564,6 @@ export class TextReviewPage {
       ? words.charAt(0).toUpperCase() + words.slice(1)
       : "Clinical review";
   }
-  private async returnToPatients(): Promise<void> {
-    this.session = null;
-    this.source = "";
-    this.wizardGroup = null;
-    this.wizardGroupIds = [];
-    this.savedTitle = null;
-    this.selection = null;
-    this.drafts.clear();
-    if (this.bridge.available) {
-      try {
-        await this.bridge.call("discard_session");
-      } catch {
-        // The reviewed note has already been committed; the view can still return home.
-      }
-    }
-    this.screen = "patients";
-    await this.loadPatients();
-  }
   private async replaceModel(): Promise<void> {
     await this.perform(
       "Replacing local model…",
@@ -1493,26 +2573,6 @@ export class TextReviewPage {
       },
       "download",
     );
-    this.render();
-  }
-  private async removeModel(): Promise<void> {
-    if (
-      !window.confirm(
-        "Remove the local detection model? You can download the pinned model again later.",
-      )
-    )
-      return;
-    let removed = false;
-    await this.perform(
-      "Removing local model…",
-      async () => {
-        await this.bridge.call("remove_model");
-        removed = true;
-      },
-      "review",
-    );
-    if (removed)
-      this.model = await this.bridge.call<ModelStatus>("model_status");
     this.render();
   }
   private async cancel(): Promise<void> {
@@ -1528,60 +2588,21 @@ export class TextReviewPage {
       this.updateStatus();
     }
   }
-  private async leave(home: boolean): Promise<void> {
-    if (this.busy || this.disposed || this.dismissDiscard) return;
-    if ((this.source || this.session) && !(await this.confirmDiscard())) return;
-    this.busy = true;
-    this.render();
-    if (this.bridge.available) {
-      try {
-        await this.bridge.call("discard_session");
-      } catch {
-        this.error = "The session could not be cleared. Please retry.";
-        this.busy = false;
-        this.render();
-        return;
-      }
-    }
-    this.source = "";
-    this.session = null;
-    this.wizardGroup = null;
-    this.wizardGroupIds = [];
-    this.selection = null;
-    this.error = "";
-    this.message = "";
-    this.drafts.clear();
-    this.busy = false;
-    if (home) {
-      this.dispose();
-      this.onHome();
-    } else this.render();
-  }
-  private confirmDiscard(): Promise<boolean> {
-    return new Promise((resolve) => {
-      const dialog = document.createElement("dialog");
-      dialog.setAttribute("aria-label", "Discard this session?");
-      dialog.innerHTML = `<h2>Discard this session?</h2><p>The source text and review decisions will be cleared.</p><div class="decision-buttons"><button type="button" data-stay>Keep reviewing</button><button type="button" data-confirm>Discard session</button></div>`;
-      this.root.append(dialog);
-      const finish = (value: boolean) => {
-        dialog.close();
-        dialog.remove();
-        this.dismissDiscard = undefined;
-        resolve(value);
-        if (!value) this.render();
-      };
-      this.dismissDiscard = () => finish(false);
-      dialog.addEventListener("cancel", (event) => {
-        event.preventDefault();
-        finish(false);
-      });
-      dialog
-        .querySelector("[data-stay]")!
-        .addEventListener("click", () => finish(false));
-      dialog
-        .querySelector("[data-confirm]")!
-        .addEventListener("click", () => finish(true));
-      dialog.showModal();
-    });
-  }
+}
+
+/** Shows generated placeholders in reviewed text as chips. The input is a
+ * short search snippet and the pattern cannot backtrack. */
+function withPlaceholders(text: string): (string | HTMLElement)[] {
+  return text
+    .split(/(\[[A-Z][A-Z0-9_]{0,45}\])/)
+    .filter(Boolean)
+    .map((part) =>
+      /^\[[A-Z][A-Z0-9_]{0,45}\]$/.test(part)
+        ? h("span", { class: "placeholder" }, part)
+        : part,
+    );
+}
+
+function redactionKey(mapping: MappingView): string {
+  return `${mapping.phrase.toLowerCase()}\u0000${mapping.category}`;
 }

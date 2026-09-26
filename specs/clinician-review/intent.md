@@ -41,7 +41,7 @@ Saving a reviewed note and approving external egress are separate actions.
 - Editing after a final scan invalidates that scan until it is run again.
 - Egress remains unavailable from an incomplete or stale review.
 - A saved mapping applies only to its exact phrase/category match. It is
-  accepted by default, while **Review saved mappings** keeps those matches in
+  accepted by default, while **Review saved redactions** keeps those matches in
   the review queue for the current note.
 
 ## Success criteria

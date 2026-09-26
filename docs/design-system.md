@@ -1,0 +1,160 @@
+# Design System
+
+**Status:** Implemented. The workspace follows this design system; the welcome
+page is the reference and does not change.
+
+The design system is an HTML library:
+[design-system/index.html](../design-system/index.html). It shows the
+principles, every token, every component with its rules and markup, and a
+clickable composition of the target screens. Open it with
+`npm run design-system`, which serves it at
+`http://127.0.0.1:1420/design-system/`. The token specimens read
+`src/styles/tokens.css` through the dev server, so they cannot drift.
+
+| Source                                                      | Holds                                                      |
+| ----------------------------------------------------------- | ---------------------------------------------------------- |
+| [src/styles/tokens.css](../src/styles/tokens.css)           | Every colour, type, space, and shape value, with its use   |
+| [src/styles/components.css](../src/styles/components.css)   | Components the app and the library both use                |
+| [src/privacy/components.ts](../src/privacy/components.ts)   | Builders that produce the documented component markup      |
+| [design-system/index.html](../design-system/index.html)     | Principles, token specimens, components, rules, and markup |
+| [design-system/screens.html](../design-system/screens.html) | Clickable screens composed only from those components      |
+| This document                                               | Navigation model, decisions, copy, accessibility, and plan |
+
+Use the canonical language in [CONTEXT.md](../CONTEXT.md). Use synthetic
+content in the library and screens.
+
+## Information architecture
+
+```text
+Welcome (unchanged)
+  ├─ New note  → Patients (choose one)
+  ├─ Patients
+  └─ Notes
+
+App header: [mark] Clinician’s Veil   Patients  Notes  Redactions  Settings   ● On this Mac
+
+Patients                      searchable table
+  New patient                 page form
+  Patient                     ribbon + tabs
+    Details                   editable form, delete patient
+    Notes (default)           searchable table
+    Redactions                patient redactions table
+    New note / open note      review workspace
+Notes (all patients)          searchable table with Patient column
+Redactions (all patients)     all-patients redactions table
+Settings                      local model
+```
+
+Screens are in-app states, not URLs: the desktop window has no back or forward
+control. Tabs are buttons with `role="tab"`; the arrow, Home, and End keys move
+between them.
+
+The breadcrumb shows the path above the page title, for example
+`Patients / Alex Morgan / New note`. The mark in the header returns to the
+welcome page. Opening a note from the all-patients Notes table goes to that
+note inside its patient, so the breadcrumb always leads back to the patient.
+
+Leaving an unsaved review for any other screen, or for the welcome page, shows
+an inline **Discard this session?** confirmation above the workspace. Saving a
+note returns to that patient's Notes tab.
+
+### Redactions at two scopes
+
+- **All-patients redactions** apply to new notes for every patient.
+- **Patient redactions** apply to new notes for one patient and take precedence
+  over an all-patients redaction for the same phrase and category. The row shows
+  an **Overrides all-patients** badge.
+- The patient Redactions tab links to the all-patients list so the clinician can
+  see everything that applies.
+- Redactions are created only while reviewing a note, by choosing to save a
+  replacement. The Redactions screens never add or delete them.
+- The only change on a Redactions screen is **Edit**, which changes the
+  replacement text. The identifier, category, and scope stay fixed because they
+  decide what the redaction matches. A patient's redactions are removed only
+  when the patient is deleted.
+- **Review saved redactions** remains the per-note opt-out before analysis.
+
+### What changed
+
+| Before                                              | Now                                                       |
+| --------------------------------------------------- | --------------------------------------------------------- |
+| Flat nav: Home, Patients, Notes, Mappings, Settings | Header nav plus breadcrumb; patient workspace with tabs   |
+| Patients table only starts notes or deletes         | Row opens the patient; **New note** stays as a row action |
+| Patient name and number cannot be edited            | **Details** tab edits them in place                       |
+| One Notes table across all patients                 | Patient **Notes** tab; all-patients Notes table remains   |
+| Mappings page mixes global and current patient      | **Redactions** tab (patient) and Redactions page (global) |
+| Add patient, save note, and delete use `<dialog>`   | Page form, inline save bar, and inline confirmation       |
+| Full-screen operation overlay                       | Header activity bar; page content is `inert` while busy   |
+
+## Token and component rules
+
+- Components use only tokens. A raw colour, radius, or font size in a component
+  stylesheet is a defect. The welcome page and About dialog keep their bespoke
+  display sizes and two secondary-button colours.
+- The display face is for one page title per screen and the brand. Section
+  headings use the body face at 600.
+- Signal is only for the focus ring and the active review highlight. Errors use
+  danger.
+- There are no shadows. `--shadow-float` is reserved for the anchored selection
+  menu.
+- A new component goes into `src/styles/components.css` and
+  `src/privacy/components.ts`, and gets a specimen in the library, with its
+  rules, in the same change.
+- Screens build DOM with `h()` from `src/privacy/dom.ts`, which turns every
+  string into a text node. Patient names, titles, and clinical text never pass
+  through `innerHTML`.
+
+## Decisions
+
+- **Redactions** is the interface name for reusable identifier replacements at
+  both scopes. [CONTEXT.md](../CONTEXT.md) defines it as a **saved redaction**,
+  distinct from a one-off redaction decision.
+- Redactions are created only during note review and are never deleted from the
+  Redactions screens. The clinician can edit the replacement text. A mistaken
+  redaction keeps applying until it is edited or the clinician chooses
+  **Review saved redactions** for a note.
+- Deletion of a patient or note uses an inline confirmation with the wording of
+  the former modal.
+- Because redactions cannot be deleted from the library, a patient's redactions
+  last until the patient is deleted and all-patients redactions have no
+  deletion path. [Privacy and security](architecture/privacy-security.md)
+  records this retention.
+- Search excerpts show placeholders as chips, so full-text search no longer
+  marks matches with brackets.
+- The all-patients Notes page stays, because the welcome page links to it.
+- The About dialog is the one modal and stays on the welcome page.
+
+## Copy
+
+- Sentence case. Buttons name the outcome: **Save changes**, **Delete note**,
+  **Save note**. The status that follows repeats the verb: “Changes saved.”
+- One name per thing. Use **patient number** and **redaction** everywhere.
+  **Note title** is not “reference”.
+- Errors say what happened and what to do next. They never contain clinical text.
+- Deletion asks, “Are you really sure you want to delete this?” and states the
+  consequence underneath.
+- Never describe output as safe, anonymous, or compliant.
+
+## Accessibility floor
+
+- Everything works by keyboard. Tabs, table rows, and inline confirmations have
+  visible focus.
+- When a view changes, focus moves to its `<h1>`. When an inline confirmation
+  opens, focus moves to **Cancel**, and **Escape** closes it and restores focus.
+- While an operation runs, page content is `inert` and the activity status is
+  announced with `role="status"`.
+- Text contrast meets WCAG AA on paper and surface. Colour never carries state
+  alone.
+- Reduced motion is respected. The only motion is the welcome mark and the
+  activity bar.
+
+## Delivery
+
+The plan shipped in two steps: tokens with the library, then the patient
+workspace, redactions, and in-page flows, with `update_patient`, a `patientId`
+filter on `search_notes`, and replacement-only redaction updates in the Tauri
+adapter. The create and delete redaction commands were removed; note review
+still saves redactions through `save_mapping_from_review`.
+
+Follow-up: split the screens in `src/privacy/page.ts` into one module per
+screen. The shared builders already live in `src/privacy/components.ts`.

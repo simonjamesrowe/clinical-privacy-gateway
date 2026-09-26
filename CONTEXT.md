@@ -42,6 +42,13 @@ Removal of identifying information without a replacement that preserves its
 role.
 _Avoid_: Deletion
 
+**Saved redaction**:
+A clinician-approved rule, saved during review, that applies the same
+replacement to an exact phrase and category in new notes for one patient or for
+all patients. A patient's saved redaction takes precedence over an
+all-patients one.
+_Avoid_: Mapping, default
+
 **Pseudonymisation**:
 Consistent replacement of identifying information with meaningful labels or
 aliases while retaining enough structure for clinical use.

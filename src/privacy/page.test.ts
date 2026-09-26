@@ -144,6 +144,62 @@ const stepStates = () =>
   );
 const progressBar = () =>
   root.querySelector<HTMLProgressElement>("[data-progress]")!;
+const activity = () =>
+  root.querySelector<HTMLElement>("[data-activity-status]")!;
+const patient = {
+  id: 7,
+  name: "Synthetic Client",
+  patientReference: "SYN-7",
+  noteCount: 1,
+  redactionCount: 1,
+};
+const redaction = (id: number, phrase: string, replacement: string) => ({
+  id,
+  phrase,
+  category: "PERSON",
+  replacement,
+  createdAt: 1,
+  updatedAt: 1,
+});
+/** A synthetic library: one patient, one note, one patient redaction that
+ * overrides one all-patients redaction. */
+function mockLibrary(overrides: Record<string, unknown> = {}) {
+  const original = call.getMockImplementation()!;
+  call.mockImplementation(async (command, args) => {
+    if (command in overrides) {
+      const value = overrides[command];
+      return typeof value === "function" ? value(args) : value;
+    }
+    if (command === "list_patients") return [patient];
+    if (command === "search_notes")
+      return [
+        {
+          id: 4,
+          patientId: 7,
+          patientName: patient.name,
+          title: "Synthetic review",
+          snippet: "[CLIENT] attended.",
+          createdAt: 1_790_000_000,
+        },
+      ];
+    if (command === "list_patient_mappings")
+      return [redaction(1, "Alex Morgan", "[CLIENT]")];
+    if (command === "list_mappings")
+      return [redaction(2, "alex morgan", "[PERSON]")];
+    return original(command, args);
+  });
+}
+function type(selector: string, value: string) {
+  const field = root.querySelector<HTMLInputElement>(selector)!;
+  field.value = value;
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+}
+async function submit(selector: string) {
+  root
+    .querySelector<HTMLFormElement>(selector)!
+    .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  await flush();
+}
 
 describe("text review", () => {
   it("starts a new note from a patient and includes that patient in detection", async () => {
@@ -161,9 +217,7 @@ describe("text review", () => {
     });
     await mount(true, "patients");
     expect(root.textContent).toContain("Synthetic Client");
-    root
-      .querySelector<HTMLButtonElement>("[data-patient-list] button")!
-      .click();
+    await click("[data-start-note]");
     input(source);
     await click("[data-detect]");
     expect(
@@ -192,35 +246,30 @@ describe("text review", () => {
     expect(label.selectionStart).toBe(0);
     expect(label.selectionEnd).toBe(label.value.length);
   });
-  it("confirms patient deletion before removing their encrypted records", async () => {
-    call.mockImplementation(async (command: string) => {
-      if (command === "model_status")
-        return {
-          installed: true,
-          name: "BERT",
-          bytes: 110_000_000,
-          revision: "fixture",
-        };
-      if (command === "list_patients")
-        return [{ id: 7, name: "Synthetic Client", patientReference: "SYN-7" }];
-      return view;
-    });
+  it("confirms patient deletion inline from the Details tab", async () => {
+    mockLibrary();
     await mount(true, "patients");
-    const actions = root.querySelectorAll<HTMLButtonElement>(
-      "[data-patient-list] button",
-    );
-    actions[1].click();
-    await flush();
-    expect(root.querySelector("dialog")?.textContent).toContain(
+    await click("[data-open-patient]");
+    await click('[data-tab="details"]');
+    await click('[data-confirm-trigger="patient"]');
+    expect(root.querySelector("[data-confirmation]")?.textContent).toContain(
       "Are you really sure you want to delete this?",
     );
-    await click("[data-cancel-delete]");
+    expect(root.querySelector("dialog")).toBeNull();
+    expect(document.activeElement).toBe(
+      root.querySelector("[data-cancel-confirm]"),
+    );
+    await click("[data-cancel-confirm]");
     expect(call).not.toHaveBeenCalledWith("delete_patient", expect.anything());
+    expect(document.activeElement).toBe(
+      root.querySelector('[data-confirm-trigger="patient"]'),
+    );
 
-    actions[1].click();
-    await flush();
+    await click('[data-confirm-trigger="patient"]');
     await click("[data-confirm-delete]");
     expect(call).toHaveBeenCalledWith("delete_patient", { id: 7 });
+    expect(root.querySelector("#patients-title")).not.toBeNull();
+    expect(root.textContent).toContain("Patient deleted.");
   });
   it("can return saved mappings to the review queue for one note", async () => {
     await mount();
@@ -274,17 +323,21 @@ describe("text review", () => {
       return view;
     });
     await mount(true, "notes");
-    expect(root.querySelector(".notes-table")?.textContent).toContain(
-      "Patient number",
+    expect(root.querySelector(".data-table")?.textContent).toContain(
+      "Synthetic Client SYN-4",
     );
-    expect(root.querySelector(".notes-table")?.textContent).toContain(
+    expect(root.querySelector(".data-table")?.textContent).toContain(
       "Synthetic review",
     );
-    await click(".notes-table button");
+    await click("[data-open-note]");
     expect(root.querySelector("#review-title")?.textContent).toBe(
       "De-identify text",
     );
     expect(root.querySelector("[data-source]")?.textContent).toBe(source);
+    expect(root.querySelector("[data-note-title]")).not.toBeNull();
+    expect(
+      root.querySelector<HTMLInputElement>("[data-note-title]")!.value,
+    ).toBe("Synthetic review");
   });
   it("confirms note deletion before removing the note", async () => {
     call.mockImplementation(async (command: string) => {
@@ -308,11 +361,15 @@ describe("text review", () => {
       return view;
     });
     await mount(true, "notes");
-    root.querySelectorAll<HTMLButtonElement>(".notes-table button")[1].click();
-    await flush();
-    expect(root.querySelector("dialog")?.textContent).toContain(
+    await click('[data-confirm-trigger="note-4"]');
+    expect(root.querySelector(".confirm-row")?.textContent).toContain(
       "Are you really sure you want to delete this?",
     );
+    root.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    expect(root.querySelector(".confirm-row")).toBeNull();
+    await click('[data-confirm-trigger="note-4"]');
     await click("[data-confirm-delete]");
     expect(call).toHaveBeenCalledWith("delete_note", { id: 4 });
   });
@@ -331,9 +388,11 @@ describe("text review", () => {
       bytes: 110,
       revision: "fixture",
     });
+    let operation = 0;
     call.mockImplementationOnce(
-      () =>
+      (_command, args) =>
         new Promise((_, no) => {
+          operation = Number(args?.operation);
           reject = no;
         }),
     );
@@ -342,31 +401,31 @@ describe("text review", () => {
     expect(root.querySelector("#settings-title")?.textContent).toBe("Settings");
     button("[data-settings-install]").click();
     progress({
-      operation: 1,
+      operation: operation - 1,
+      stage: "Stale download",
+      completed: 110,
+      total: 110,
+    });
+    expect(progressBar().hasAttribute("value")).toBe(false);
+    progress({
+      operation,
       stage: "Downloading model",
       completed: 55,
       total: 110,
     });
-    expect(
-      root.querySelector<HTMLProgressElement>("[data-overlay-progress]")!.value,
-    ).toBe(50);
+    expect(progressBar().value).toBe(50);
     progress({
-      operation: 1,
+      operation,
       stage: "Downloading model",
       completed: 120,
       total: 110,
     });
-    expect(
-      root.querySelector<HTMLProgressElement>("[data-overlay-progress]")!.value,
-    ).toBe(100);
-    expect(root.querySelector("[data-overlay]")?.hasAttribute("hidden")).toBe(
-      false,
-    );
+    expect(progressBar().value).toBe(100);
+    expect(activity().hidden).toBe(false);
+    expect(button("[data-cancel]").hidden).toBe(false);
     reject("Model download failed.");
     await flush();
-    expect(root.querySelector("[data-overlay]")?.hasAttribute("hidden")).toBe(
-      true,
-    );
+    expect(activity().hidden).toBe(true);
     expect(button("[data-settings-install]").disabled).toBe(false);
     expect(root.querySelector("[data-error]")!.textContent).toBe(
       "Model download failed.",
@@ -542,15 +601,16 @@ describe("text review", () => {
   });
   it("opens local note, mapping, and model-management views from the workspace", async () => {
     await mount();
-    const mappings = root.querySelector<HTMLButtonElement>(
-      '[data-route="mappings"]',
-    )!;
-    mappings.click();
-    await flush();
-    expect(root.querySelector("#mappings-title")?.textContent).toBe(
-      "Identifier mappings",
+    await click('[data-route="redactions"]');
+    expect(root.querySelector("#redactions-title")?.textContent).toBe(
+      "Redactions",
     );
-    expect(root.textContent).toContain("No saved defaults yet.");
+    expect(
+      root
+        .querySelector('[data-route="redactions"]')
+        ?.getAttribute("aria-current"),
+    ).toBe("page");
+    expect(root.textContent).toContain("No redactions yet");
     root.querySelector<HTMLButtonElement>('[data-route="notes"]')!.click();
     await flush();
     expect(root.querySelector("#notes-title")?.textContent).toBe("Notes");
@@ -632,10 +692,11 @@ describe("text review", () => {
     input(source);
     button("[data-detect]").click();
     expect(progressBar().hidden).toBe(false);
-    expect(root.querySelector<HTMLElement>("[data-overlay]")!.hidden).toBe(
-      false,
-    );
-    expect(root.querySelector<HTMLElement>(".review-page")!.inert).toBe(true);
+    expect(activity().hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>("[data-main]")!.inert).toBe(true);
+    expect(
+      root.querySelector(".app-header")!.contains(button("[data-cancel]")),
+    ).toBe(true);
     expect(progressBar().hasAttribute("value")).toBe(false);
     progress({
       operation: 1,
@@ -659,10 +720,8 @@ describe("text review", () => {
     resolve(view);
     await flush();
     expect(progressBar().hidden).toBe(true);
-    expect(root.querySelector<HTMLElement>("[data-overlay]")!.hidden).toBe(
-      true,
-    );
-    expect(root.querySelector<HTMLElement>(".review-page")!.inert).toBe(false);
+    expect(activity().hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>("[data-main]")!.inert).toBe(false);
     expect(progressBar().hasAttribute("value")).toBe(false);
     expect(stepStates()).toEqual([
       "complete",
@@ -886,7 +945,7 @@ describe("text review", () => {
     expect(progressBar().hasAttribute("value")).toBe(false);
     input(source);
     await click("[data-discard]");
-    const dialog = root.querySelector("dialog");
+    expect(root.querySelector("[data-discard-confirm]")).not.toBeNull();
     resolve({
       installed: true,
       name: "BERT",
@@ -894,9 +953,9 @@ describe("text review", () => {
       revision: "fixture",
     });
     await mounting;
-    expect(root.querySelector("dialog")).toBe(dialog);
-    expect(dialog?.open).toBe(true);
+    expect(root.querySelector("[data-discard-confirm]")).not.toBeNull();
     await click("[data-stay]");
+    expect(root.querySelector("[data-discard-confirm]")).toBeNull();
     expect(progressBar().hidden).toBe(true);
     expect(button("[data-detect]").disabled).toBe(false);
     expect(root.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
@@ -924,5 +983,210 @@ describe("text review", () => {
     await flush();
     expect(unsubscribe).toHaveBeenCalledOnce();
     expect(root.textContent).toBe("");
+  });
+  it("renders patient names as text in the table and patient workspace", async () => {
+    mockLibrary({
+      list_patients: [{ ...patient, name: '<img src=x onerror="alert(1)">' }],
+    });
+    await mount(true, "patients");
+    expect(root.querySelector("img")).toBeNull();
+    expect(root.querySelector("[data-open-patient]")!.textContent).toBe(
+      '<img src=x onerror="alert(1)">',
+    );
+    await click("[data-open-patient]");
+    expect(root.querySelector("img")).toBeNull();
+    expect(root.querySelector("#patient-title")!.textContent).toContain(
+      '<img src=x onerror="alert(1)">',
+    );
+  });
+  it("adds a patient on its own page and opens their notes", async () => {
+    mockLibrary({
+      create_patient: { ...patient, id: 9, name: "New Client", noteCount: 0 },
+      list_patients: [{ ...patient, id: 9, name: "New Client", noteCount: 0 }],
+      search_notes: [],
+    });
+    await mount(true, "patients");
+    await click("[data-add-patient]");
+    expect(root.querySelector("#new-patient-title")?.textContent).toBe(
+      "New patient",
+    );
+    expect(root.querySelector("dialog")).toBeNull();
+    type("[data-patient-name]", "New Client");
+    await submit("[data-patient-form]");
+    expect(call).toHaveBeenCalledWith("create_patient", {
+      name: "New Client",
+      patientReference: undefined,
+    });
+    expect(root.querySelector("#patient-title")?.textContent).toContain(
+      "New Client",
+    );
+    expect(
+      root.querySelector('[data-tab="notes"]')?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(root.textContent).toContain("No notes yet");
+    expect(root.textContent).toContain("Patient added.");
+  });
+  it("edits patient details in place and saves only when something changed", async () => {
+    mockLibrary({
+      update_patient: (args: Record<string, unknown>) => ({
+        ...patient,
+        name: args.name,
+        patientReference: args.patientReference,
+      }),
+    });
+    await mount(true, "patients");
+    await click("[data-open-patient]");
+    await click('[data-tab="details"]');
+    expect(document.activeElement).toBe(root.querySelector("#tab-details"));
+    root
+      .querySelector("#tab-details")!
+      .dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    await flush();
+    expect(
+      root.querySelector('[data-tab="notes"]')?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(document.activeElement).toBe(root.querySelector("#tab-notes"));
+    await click('[data-tab="details"]');
+    expect(button("[data-save-patient]").disabled).toBe(true);
+    type("[data-patient-name]", "Renamed Client");
+    type("[data-patient-reference]", " ");
+    expect(button("[data-save-patient]").disabled).toBe(false);
+    await submit("[data-patient-form]");
+    expect(call).toHaveBeenCalledWith("update_patient", {
+      id: 7,
+      name: "Renamed Client",
+      patientReference: undefined,
+    });
+    expect(root.querySelector("#patient-title")?.textContent).toBe(
+      "Renamed Client",
+    );
+    expect(root.textContent).toContain("Changes saved.");
+    expect(button("[data-save-patient]").disabled).toBe(true);
+  });
+  it("searches one patient's notes only when Search is chosen", async () => {
+    mockLibrary();
+    await mount(true, "patients");
+    await click("[data-open-patient]");
+    expect(call).toHaveBeenLastCalledWith("search_notes", {
+      query: "",
+      patientId: 7,
+    });
+    type("#search", "attended");
+    expect(call).toHaveBeenLastCalledWith("search_notes", {
+      query: "",
+      patientId: 7,
+    });
+    await submit("[data-search]");
+    expect(call).toHaveBeenLastCalledWith("search_notes", {
+      query: "attended",
+      patientId: 7,
+    });
+    expect(
+      root.querySelector('.table-toolbar [role="status"]')?.textContent,
+    ).toContain("1 of 1 note match “attended”");
+    expect(document.activeElement).toBe(root.querySelector("#search"));
+  });
+  it("edits only a redaction's replacement and never offers deletion", async () => {
+    mockLibrary({
+      update_patient_mapping: (args: Record<string, unknown>) =>
+        redaction(1, "Alex Morgan", String(args.replacement)),
+    });
+    await mount(true, "patients");
+    await click("[data-open-patient]");
+    await click('[data-tab="redactions"]');
+    expect(root.textContent).toContain("Overrides all-patients");
+    expect(root.textContent).not.toContain("Delete");
+    expect(root.textContent).not.toContain("Add redaction");
+    await click('[data-edit-redaction="1"]');
+    const field = root.querySelector<HTMLInputElement>(
+      "[data-redaction-input]",
+    )!;
+    expect(document.activeElement).toBe(field);
+    root.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    expect(root.querySelector("[data-redaction-input]")).toBeNull();
+    expect(document.activeElement).toBe(
+      root.querySelector('[data-edit-redaction="1"]'),
+    );
+    await click('[data-edit-redaction="1"]');
+    type("[data-redaction-input]", "case manager");
+    await click("[data-save-redaction]");
+    expect(call).toHaveBeenCalledWith("update_patient_mapping", {
+      patientId: 7,
+      id: 1,
+      replacement: "[CASE_MANAGER]",
+    });
+    expect(root.querySelector(".placeholder")?.textContent).toBe(
+      "[CASE_MANAGER]",
+    );
+    expect(root.textContent).toContain("Redaction updated.");
+  });
+  it("edits an all-patients redaction from the Redactions page", async () => {
+    mockLibrary({
+      update_mapping: (args: Record<string, unknown>) =>
+        redaction(2, "alex morgan", String(args.replacement)),
+    });
+    await mount();
+    await click('[data-route="redactions"]');
+    await click('[data-edit-redaction="2"]');
+    type("[data-redaction-input]", "[SERVICE]");
+    await click("[data-save-redaction]");
+    expect(call).toHaveBeenCalledWith("update_mapping", {
+      id: 2,
+      replacement: "[SERVICE]",
+    });
+  });
+  it("asks before leaving an unsaved review for another screen", async () => {
+    mockLibrary();
+    await mount();
+    input(source);
+    await click('[data-route="patients"]');
+    expect(root.querySelector("[data-discard-confirm]")).not.toBeNull();
+    expect(root.querySelector("#review-title")).not.toBeNull();
+    root.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    expect(root.querySelector("[data-discard-confirm]")).toBeNull();
+    expect(root.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
+      source,
+    );
+    await click('[data-route="patients"]');
+    await click("[data-confirm]");
+    expect(call).toHaveBeenCalledWith("discard_session", undefined);
+    expect(root.querySelector("#patients-title")).not.toBeNull();
+    expect(root.textContent).not.toContain(source);
+  });
+  it("saves a checked note from the inline save bar and returns to the patient", async () => {
+    mockLibrary({ save_reviewed_note: { id: 5 } });
+    await mount(true, "patients");
+    await click("[data-start-note]");
+    await detect();
+    await click('[data-action="accept"]');
+    const title = root.querySelector<HTMLInputElement>("[data-note-title]")!;
+    expect(title.value).toBe("Clinical review");
+    type("[data-note-title]", "  ");
+    await click("[data-save-note]");
+    expect(root.querySelector("[data-save-error]")!.textContent).toBe(
+      "Add a title to save this note.",
+    );
+    expect(call).not.toHaveBeenCalledWith(
+      "save_reviewed_note",
+      expect.anything(),
+    );
+    type("[data-note-title]", "Synthetic review");
+    await click("[data-save-note]");
+    expect(call).toHaveBeenCalledWith("save_reviewed_note", {
+      sessionId: 1,
+      revision: 2,
+      title: "Synthetic review",
+    });
+    expect(root.querySelector("#patient-title")?.textContent).toContain(
+      "Synthetic Client",
+    );
+    expect(root.textContent).toContain("Note saved.");
+    expect(root.querySelector("dialog")).toBeNull();
   });
 });

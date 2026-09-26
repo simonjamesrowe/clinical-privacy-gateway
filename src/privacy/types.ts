@@ -31,6 +31,7 @@ export interface ModelStatus {
 }
 export interface NoteSummary {
   id: number;
+  patientId?: number;
   title: string;
   patientName?: string;
   patientReference?: string;
@@ -64,6 +65,8 @@ export interface PatientView {
   id: number;
   name: string;
   patientReference?: string;
+  noteCount?: number;
+  redactionCount?: number;
 }
 export interface Progress {
   operation: number;
