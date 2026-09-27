@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart TD
-    INPUT[Paste text or microphone]
+    INPUT[Paste text, document import or microphone]
     VAD[Voice activity detection]
     ASR[Local transcription and audio alignment]
     RULES[Deterministic rules and checksums]
@@ -19,7 +19,9 @@ flowchart TD
     INPUT -. pasted text .-> RULES
 ```
 
-Pasted text joins the pipeline at deterministic detection. Microphone audio is
+Pasted text and clinician-checked document extractions join the pipeline at
+deterministic detection, with a 100,000-Unicode-character source limit.
+Document extraction does not bypass saved-redaction controls or final review. Microphone audio is
 gated by voice activity before ASR so silence is not offered to the transcriber.
 Source audio and final transcript segments share timestamps for later checking.
 

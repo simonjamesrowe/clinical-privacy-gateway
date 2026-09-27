@@ -1,3 +1,9 @@
+import { documentLabel, MAX_SOURCE_CHARACTERS } from "./documents";
+import type {
+  ImportedDocument,
+  DocumentPreview,
+  DocumentMetadata,
+} from "./types";
 import type {
   Detection,
   MappingView,
@@ -12,6 +18,8 @@ import type {
 import "../styles/components.css";
 import "../styles/review.css";
 import {
+  documentButton,
+  documentContent,
   breadcrumb,
   confirmation,
   confirmRow,
@@ -28,7 +36,14 @@ import { brandMark, categoryLabel, formatDate, h } from "./dom";
 import { normalisePlaceholder, placeholderError } from "./placeholder";
 import type { Progress } from "./types";
 
-type Work = "download" | "analysis" | "rescan" | "review" | "copy";
+type Work =
+  | "import"
+  | "preview"
+  | "download"
+  | "analysis"
+  | "rescan"
+  | "review"
+  | "copy";
 type Tab = "details" | "notes" | "redactions";
 type Section = "patients" | "notes" | "redactions" | "settings";
 type Route =
@@ -40,7 +55,13 @@ type Route =
   | { name: "redactions" }
   | { name: "settings" };
 /** Where the clinician goes once an unsaved review is discarded. */
-type Leave = Route | "home" | "discard";
+type Leave =
+  | Route
+  | "home"
+  | "discard"
+  | "paste"
+  | "import"
+  | "replace-document";
 interface RedactionEdit {
   scope: "patient" | "global";
   id: number;
@@ -70,10 +91,27 @@ const TAB_LABEL: Record<Tab, string> = {
   notes: "Notes",
   redactions: "Redactions",
 };
-const CANCELLABLE: (Work | null)[] = ["download", "analysis", "rescan"];
+const CANCELLABLE: (Work | null)[] = [
+  "download",
+  "analysis",
+  "rescan",
+  "import",
+  "preview",
+];
 
 export class TextReviewPage {
   private source = "";
+  private inputMode: "paste" | "import" = "paste";
+  private imported: ImportedDocument | null = null;
+  private originalDocument: DocumentMetadata | null = null;
+  private originalNoteId: number | null = null;
+  private warningsAcknowledged = false;
+  private preview: DocumentPreview | null = null;
+  private previewPage = 0;
+  private previewWidth = 800;
+  private previewImage = "";
+  private previewReturnFocus = "";
+  private previewReturnScroll = 0;
   private session: ReviewSession | null = null;
   private model: ModelStatus | null = null;
   private drafts = new Map<number, string>();
@@ -157,6 +195,19 @@ export class TextReviewPage {
 
   dispose(): void {
     this.disposed = true;
+    if (
+      this.bridge.available &&
+      (this.imported ||
+        this.preview ||
+        this.work === "import" ||
+        this.work === "preview")
+    ) {
+      void this.bridge.call("discard_session").catch(() => {});
+    }
+    this.imported = null;
+    this.originalDocument = null;
+    this.preview = null;
+    this.previewImage = "";
     this.root.removeEventListener("keydown", this.keydown);
     this.unsubscribe?.();
     this.source = "";
@@ -184,7 +235,8 @@ export class TextReviewPage {
       h("div", { class: "workspace" }, this.header(), main),
     );
     const route = this.route;
-    if (route.name === "review") this.renderReviewScreen(main);
+    if (this.preview) main.append(...this.previewScreen());
+    else if (route.name === "review") this.renderReviewScreen(main);
     else main.append(...this.screen(route));
     this.updateStatus();
     this.afterRender();
@@ -356,7 +408,8 @@ export class TextReviewPage {
   }
   private onKeydown(event: KeyboardEvent): void {
     if (event.key !== "Escape" || this.busy) return;
-    if (this.discarding) this.stay();
+    if (this.preview) void this.closePreview();
+    else if (this.discarding) this.stay();
     else if (this.editing) this.cancelEdit();
     else if (this.confirming) this.cancelConfirm();
     else return;
@@ -388,6 +441,7 @@ export class TextReviewPage {
 
   private async navigate(route: Route): Promise<void> {
     if (this.busy || this.disposed) return;
+    if (this.preview && !(await this.closePreview())) return;
     if (this.route.name === "review" && route.name !== "review") {
       if (this.hasUnsavedReview()) {
         this.requestLeave(route);
@@ -505,7 +559,7 @@ export class TextReviewPage {
         this.session.revision === this.openedRevision &&
         this.drafts.size === 0
       );
-    return this.source.trim().length > 0;
+    return this.source.trim().length > 0 || this.imported !== null;
   }
   private requestLeave(target: Leave): void {
     this.discarding = target;
@@ -521,8 +575,16 @@ export class TextReviewPage {
     const target = this.discarding;
     if (!target || this.busy) return;
     this.discarding = null;
+    if (target === "replace-document" || target === "import") {
+      await this.chooseDocument();
+      return;
+    }
     if (!(await this.clearSession())) return;
-    if (target === "home") {
+    if (target === "paste") {
+      this.inputMode = "paste";
+      this.focusTarget = "#source-input";
+      this.render();
+    } else if (target === "home") {
       this.dispose();
       this.onHome();
     } else if (target === "discard") {
@@ -532,6 +594,7 @@ export class TextReviewPage {
   }
   private async goHome(): Promise<void> {
     if (this.busy || this.disposed) return;
+    if (this.preview && !(await this.closePreview())) return;
     if (this.route.name === "review" && this.hasUnsavedReview()) {
       this.requestLeave("home");
       return;
@@ -548,7 +611,10 @@ export class TextReviewPage {
   /** Drops the native and displayed review session. Returns false, with the
    * error shown, if the native session could not be cleared. */
   private async clearSession(ignoreErrors = false): Promise<boolean> {
-    if ((this.source || this.session) && this.bridge.available) {
+    if (
+      (this.source || this.session || this.imported || this.preview) &&
+      this.bridge.available
+    ) {
       this.busy = true;
       this.message = "Clearing the session…";
       this.render();
@@ -572,6 +638,13 @@ export class TextReviewPage {
   }
   private resetReview(): void {
     this.source = "";
+    this.imported = null;
+    this.originalDocument = null;
+    this.originalNoteId = null;
+    this.inputMode = "paste";
+    this.warningsAcknowledged = false;
+    this.preview = null;
+    this.previewImage = "";
     this.session = null;
     this.savedTitle = null;
     this.noteTitle = null;
@@ -1144,7 +1217,7 @@ export class TextReviewPage {
     ].filter((node): node is HTMLElement => node !== null);
   }
   private notesTable(total: number | undefined, withPatient: boolean): Node {
-    const columns = withPatient ? 5 : 4;
+    const columns = withPatient ? 6 : 5;
     const rows = this.notes.flatMap((note) => {
       const open = () => void this.openNote(note.id);
       const key = `note-${note.id}`;
@@ -1174,6 +1247,26 @@ export class TextReviewPage {
           ),
         ),
         h("td", { class: "excerpt" }, ...withPlaceholders(note.snippet)),
+        h(
+          "td",
+          {},
+          note.document
+            ? documentButton(
+                note.document.format,
+                `Preview original ${documentLabel(note.document)}`,
+                () =>
+                  void this.openPreview(
+                    note.id,
+                    `[data-document="${note.id}"]`,
+                  ),
+                note.id,
+              )
+            : h(
+                "span",
+                { class: "muted", "aria-label": "No original document" },
+                "—",
+              ),
+        ),
         h("td", { class: "mono" }, formatDate(note.createdAt)),
         h(
           "td",
@@ -1198,7 +1291,7 @@ export class TextReviewPage {
               colspan: columns,
               subject: "note",
               consequence:
-                "Its original text, reviewed text and review record will be deleted from the encrypted library.",
+                "Its original document, source text, reviewed text and review record will be deleted from the encrypted library.",
               onCancel: () => this.cancelConfirm(),
               onConfirm: () => void this.deleteNote(note.id),
             }),
@@ -1228,6 +1321,7 @@ export class TextReviewPage {
           ...(withPatient ? [{ label: "Patient" }] : []),
           { label: "Title" },
           { label: "Reviewed text", narrow: true },
+          { label: "Original" },
           { label: "Saved" },
           { label: "Actions", hidden: true },
         ],
@@ -1260,6 +1354,8 @@ export class TextReviewPage {
     );
     if (result) {
       this.resetReview();
+      this.originalDocument = result.note.document ?? null;
+      this.originalNoteId = result.note.id;
       this.savedTitle = result.note.title;
       this.noteTitle = result.note.title;
       this.patient = {
@@ -1292,6 +1388,309 @@ export class TextReviewPage {
       return;
     }
     this.render();
+  }
+
+  private switchInput(mode: "paste" | "import"): void {
+    if (this.busy || this.inputMode === mode) return;
+    if (this.hasUnsavedReview()) {
+      this.requestLeave(mode);
+      return;
+    }
+    this.inputMode = mode;
+    this.focusTarget = `[data-input-mode="${mode}"]`;
+    this.render();
+  }
+  private async chooseDocument(): Promise<void> {
+    if (!this.patient) return;
+    const imported = await this.perform(
+      "Choosing document…",
+      () =>
+        this.bridge.call<ImportedDocument | null>("import_document", {
+          operation: this.operation,
+          patientId: this.patient!.id,
+        }),
+      "import",
+    );
+    if (imported) {
+      this.imported = imported;
+      this.originalDocument = imported.document;
+      this.originalNoteId = null;
+      this.inputMode = "import";
+      this.source = imported.extracted.text;
+      this.warningsAcknowledged = false;
+      this.focusTarget = "#source-input";
+    }
+    this.render();
+  }
+  private documentToolbar(editable: boolean): HTMLElement {
+    const metadata = this.originalDocument!;
+    const toolbar = h(
+      "div",
+      { class: "document-toolbar" },
+      h(
+        "div",
+        { class: "document-toolbar__name" },
+        h("strong", {}, `${metadata.format.toUpperCase()} · ${metadata.name}`),
+        h(
+          "p",
+          { class: "muted" },
+          this.originalNoteId
+            ? "Original retained in the encrypted library."
+            : "The original will be retained when you save this note.",
+        ),
+      ),
+      h(
+        "button",
+        {
+          type: "button",
+          class: "button button--compact",
+          "data-preview-import": true,
+          onclick: () =>
+            void this.openPreview(this.originalNoteId, "[data-preview-import]"),
+        },
+        "Preview",
+      ),
+      editable &&
+        h(
+          "button",
+          {
+            type: "button",
+            class: "button button--compact",
+            "data-change-document": true,
+            onclick: () => this.requestLeave("replace-document"),
+          },
+          "Change document",
+        ),
+    );
+    if (editable && this.imported?.extracted.warnings.length) {
+      toolbar.append(
+        h(
+          "div",
+          { class: "document-warning" },
+          ...this.imported.extracted.warnings.map((warning) =>
+            h("p", { class: "notice" }, warning),
+          ),
+          h(
+            "label",
+            {},
+            h("input", {
+              type: "checkbox",
+              "data-acknowledge-document": true,
+              checked: this.warningsAcknowledged,
+              onchange: (event) => {
+                this.warningsAcknowledged = (
+                  event.target as HTMLInputElement
+                ).checked;
+                this.focusTarget = "[data-acknowledge-document]";
+                this.render();
+              },
+            }),
+            " I have checked the extracted text and the extraction limitations.",
+          ),
+        ),
+      );
+    }
+    return toolbar;
+  }
+  private async openPreview(
+    noteId: number | null,
+    focus: string,
+  ): Promise<void> {
+    this.previewReturnFocus = focus;
+    this.previewReturnScroll = window.scrollY;
+    const result = await this.perform(
+      "Opening original document…",
+      () =>
+        this.bridge.call<DocumentPreview>("open_document_preview", {
+          operation: this.operation,
+          ...(noteId !== null ? { noteId } : { importId: this.imported?.id }),
+        }),
+      "preview",
+    );
+    if (result) {
+      this.preview = result;
+      this.previewPage = 0;
+      this.previewWidth = 800;
+      this.previewImage = "";
+      this.focusTarget = "h1";
+      this.render();
+      if (result.document.format === "pdf") await this.loadPreviewPage();
+    }
+    this.render();
+  }
+  private async loadPreviewPage(): Promise<void> {
+    if (!this.preview) return;
+    this.previewImage = "";
+    const image = await this.perform(
+      "Displaying PDF page…",
+      () =>
+        this.bridge.call<string>("document_preview_page", {
+          operation: this.operation,
+          id: this.preview!.id,
+          page: this.previewPage,
+          width: this.previewWidth,
+        }),
+      "preview",
+    );
+    if (image && this.preview) this.previewImage = image;
+    this.render();
+  }
+  private async closePreview(): Promise<boolean> {
+    if (!this.preview || this.busy) return !this.preview;
+    let closed = false;
+    await this.perform("Closing original document…", async () => {
+      await this.bridge.call("close_document_preview", {
+        id: this.preview!.id,
+      });
+      closed = true;
+    });
+    if (closed) {
+      this.preview = null;
+      this.previewImage = "";
+      this.focusTarget = this.previewReturnFocus;
+    }
+    this.render();
+    if (closed) document.documentElement.scrollTop = this.previewReturnScroll;
+    return closed;
+  }
+  private previewScreen(): Node[] {
+    const preview = this.preview!;
+    const pdf = preview.document.format === "pdf";
+    return [
+      h(
+        "button",
+        {
+          type: "button",
+          class: "button button--quiet",
+          "data-close-preview": true,
+          onclick: () => void this.closePreview(),
+        },
+        this.route.name === "review" ? "← Back to note" : "← Back to results",
+      ),
+      pageHeader({
+        eyebrow: "Source material",
+        title: ["Original document"],
+        id: "document-preview-title",
+        description: preview.document.name,
+      }),
+      h(
+        "p",
+        { class: "notice" },
+        "Original document — contains source material. Privacy transformations have not been applied to this document.",
+      ),
+      this.errorNotice(),
+      ...(preview.document.format === "docx"
+        ? [
+            h(
+              "p",
+              { class: "muted" },
+              "Simplified layout · headings, text, lists and tables",
+            ),
+          ]
+        : []),
+      ...preview.extracted.warnings.map((warning) =>
+        h("p", { class: "muted" }, warning),
+      ),
+      ...(pdf
+        ? [
+            h(
+              "div",
+              { class: "document-toolbar" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button",
+                  "data-page-previous": true,
+                  disabled: this.previewPage === 0 || this.busy,
+                  onclick: () => {
+                    this.previewPage--;
+                    this.focusTarget = "[data-page-next]";
+                    void this.loadPreviewPage();
+                  },
+                },
+                "Previous",
+              ),
+              h(
+                "span",
+                { role: "status", class: "mono" },
+                `Page ${this.previewPage + 1} of ${preview.extracted.pageCount}`,
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button",
+                  "data-page-next": true,
+                  disabled:
+                    this.previewPage + 1 >=
+                      (preview.extracted.pageCount ?? 0) || this.busy,
+                  onclick: () => {
+                    this.previewPage++;
+                    this.focusTarget = "[data-page-previous]";
+                    void this.loadPreviewPage();
+                  },
+                },
+                "Next",
+              ),
+              h(
+                "label",
+                {},
+                "Zoom ",
+                h(
+                  "select",
+                  {
+                    "aria-label": "Preview zoom",
+                    value: String(this.previewWidth),
+                    onchange: (event) => {
+                      this.focusTarget = '[aria-label="Preview zoom"]';
+                      this.previewWidth = Number(
+                        (event.target as HTMLSelectElement).value,
+                      );
+                      void this.loadPreviewPage();
+                    },
+                  },
+                  ...[800, 1200, 1600].map((width) =>
+                    h(
+                      "option",
+                      { value: width, selected: width === this.previewWidth },
+                      `${width / 8}%`,
+                    ),
+                  ),
+                ),
+              ),
+              this.error &&
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "button",
+                    onclick: () => void this.loadPreviewPage(),
+                  },
+                  "Retry page",
+                ),
+            ),
+            this.previewImage
+              ? h(
+                  "div",
+                  { class: "document-viewport" },
+                  h("img", {
+                    class: "document-page",
+                    src: this.previewImage,
+                    width: this.previewWidth,
+                    alt: `Original PDF page ${this.previewPage + 1}`,
+                  }),
+                )
+              : h(
+                  "p",
+                  { class: "muted" },
+                  this.error
+                    ? "The page could not be displayed."
+                    : "Loading page…",
+                ),
+          ]
+        : [documentContent(preview.extracted.blocks)]),
+    ];
   }
 
   // Redactions --------------------------------------------------------------
@@ -1766,6 +2165,9 @@ export class TextReviewPage {
     install.onclick = () => void this.navigate({ name: "settings" });
     this.el<HTMLElement>("[data-model-panel]").hidden = ready;
     this.el<HTMLButtonElement>("[data-discard]").disabled = this.busy;
+    if (this.session && this.originalDocument) {
+      this.el("[data-workspace]").before(this.documentToolbar(false));
+    }
     if (this.session) this.renderReview(this.session);
     else this.renderInput(ready);
   }
@@ -1781,7 +2183,7 @@ export class TextReviewPage {
         "div",
         {},
         h("strong", {}, "Discard this session?"),
-        " The source text and review decisions will be cleared.",
+        " The imported document, source text and review decisions will be cleared.",
       ),
       h(
         "div",
@@ -1872,10 +2274,102 @@ export class TextReviewPage {
       `<section class="input-panel"><div class="pane-heading"><label for="source-input">Source text</label><button type="button" class="button button--compact" data-example>Use synthetic example</button></div>
       <textarea id="source-input" rows="12" placeholder="Type or paste the text you want to review…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off" aria-describedby="source-count"></textarea>
       <div class="pane-footer"><span id="source-count"></span><label class="review-saved-option"><input type="checkbox" data-review-saved-mappings /> Review saved redactions</label><button type="button" class="button button--primary" data-detect>Find identifiers</button></div></section>`;
+    const panel = this.el<HTMLElement>(".input-panel");
+    const tabPanel = h("div", {
+      id: "source-tab-panel",
+      role: "tabpanel",
+      "aria-labelledby": `source-tab-${this.inputMode}`,
+    });
+    panel.replaceWith(tabPanel);
+    tabPanel.append(panel);
+    const tabs = h("div", {
+      class: "document-tabs",
+      role: "tablist",
+      "aria-label": "Note source",
+    });
+    for (const [mode, label] of [
+      ["paste", "Type or paste"],
+      ["import", "Import document"],
+    ] as const) {
+      const tab = h(
+        "button",
+        {
+          type: "button",
+          class: "button",
+          role: "tab",
+          id: `source-tab-${mode}`,
+          "aria-controls": "source-tab-panel",
+          "aria-selected": String(this.inputMode === mode),
+          tabindex: this.inputMode === mode ? "0" : "-1",
+          "data-input-mode": mode,
+          onclick: () => this.switchInput(mode),
+        },
+        label,
+      );
+      tab.addEventListener("keydown", (event) => {
+        if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+          event.preventDefault();
+          const next =
+            event.key === "Home"
+              ? "paste"
+              : event.key === "End"
+                ? "import"
+                : mode === "paste"
+                  ? "import"
+                  : "paste";
+          this.switchInput(next);
+        }
+      });
+      tabs.append(tab);
+    }
+    tabPanel.before(tabs);
+    if (this.inputMode === "import") {
+      if (this.imported) {
+        panel.before(this.documentToolbar(true));
+        panel.prepend(
+          h(
+            "p",
+            { class: "muted" },
+            "Check the extracted text before finding identifiers. Editing this text does not change the retained original.",
+          ),
+        );
+      } else {
+        panel.hidden = true;
+        panel.before(
+          h(
+            "div",
+            { class: "document-toolbar" },
+            h(
+              "div",
+              { class: "document-toolbar__name" },
+              h("strong", {}, "Create a note from a document"),
+              h(
+                "p",
+                { class: "muted" },
+                "Choose a .txt, .docx or PDF with selectable text. Up to 25 MiB and 100,000 characters. Processing stays on this Mac.",
+              ),
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button button--primary",
+                "data-choose-document": true,
+                disabled: !this.bridge.available || !this.patient || this.busy,
+                onclick: () => void this.chooseDocument(),
+              },
+              "Choose document",
+            ),
+          ),
+        );
+      }
+    }
     const input = this.el<HTMLTextAreaElement>("#source-input");
     input.value = this.source;
     input.disabled = this.busy;
     this.el<HTMLButtonElement>("[data-example]").disabled = this.busy;
+    this.el<HTMLButtonElement>("[data-example]").hidden =
+      this.inputMode === "import";
     const reviewSavedMappings = this.el<HTMLInputElement>(
       "[data-review-saved-mappings]",
     );
@@ -1887,10 +2381,20 @@ export class TextReviewPage {
     const count = () => {
       const length = Array.from(this.source).length;
       this.el<HTMLElement>("#source-count").textContent =
-        `${length.toLocaleString()} / 20,000 characters`;
+        `${length.toLocaleString()} / 100,000 characters`;
       this.el<HTMLButtonElement>("[data-detect]").disabled =
-        !ready || this.busy || !this.source.trim() || length > 20_000;
-      input.setAttribute("aria-invalid", String(length > 20_000));
+        !ready ||
+        this.busy ||
+        !this.source.trim() ||
+        length > MAX_SOURCE_CHARACTERS ||
+        Boolean(
+          this.imported?.extracted.warnings.length &&
+          !this.warningsAcknowledged,
+        );
+      input.setAttribute(
+        "aria-invalid",
+        String(length > MAX_SOURCE_CHARACTERS),
+      );
     };
     input.addEventListener("input", () => {
       this.source = input.value;
@@ -1914,7 +2418,7 @@ export class TextReviewPage {
       <div class="review-panes"><section class="text-pane"><div class="pane-heading"><h2>Source text</h2><span>Original wording</span></div><div class="note-text" data-source tabindex="0" aria-label="Source text; select a missed identifiable detail to add to review"></div><div class="selection-menu" data-selection-menu hidden role="menu" aria-label="Selected text actions"><button type="button" class="button button--compact" data-manual role="menuitem">Add to review</button><button type="button" class="button button--compact" data-cancel-selection role="menuitem">Cancel</button></div></section>
       <section class="text-pane"><div class="pane-heading"><h2>Proposed result</h2><span data-result-status></span></div><div class="note-text" data-output aria-label="Proposed result"></div></section></div>
       <section class="review-history" data-review-history><details data-resolved-items><summary data-resolved-summary></summary><div data-resolved-detections></div></details></section>
-      <section class="save-bar" aria-label="Save reviewed note"><div class="field"><label for="note-title">Note title</label><input id="note-title" data-note-title maxlength="160" autocomplete="off" aria-describedby="note-title-hint note-title-error" /><span class="hint" id="note-title-hint">Saved with the original text and every review decision in the encrypted library.</span><span class="error" id="note-title-error" role="alert" data-save-error></span></div><div class="page-actions"><button type="button" class="button" data-rescan>Check reviewed text</button><button type="button" class="button" data-copy>Copy reviewed text</button><button type="button" class="button button--primary" data-save-note>Save note</button></div></section>
+      <section class="save-bar" aria-label="Save reviewed note"><div class="field"><label for="note-title">Note title</label><input id="note-title" data-note-title maxlength="160" autocomplete="off" aria-describedby="note-title-hint note-title-error" /><span class="hint" id="note-title-hint">Saved with the source text, any imported original document, and every review decision in the encrypted library.</span><span class="error" id="note-title-error" role="alert" data-save-error></span></div><div class="page-actions"><button type="button" class="button" data-rescan>Check reviewed text</button><button type="button" class="button" data-copy>Copy reviewed text</button><button type="button" class="button button--primary" data-save-note>Save note</button></div></section>
       <p class="review-completion"><small>Copying puts reviewed text on the system clipboard. Clipboard managers may retain it.</small></p>`;
     this.el<HTMLElement>("[data-result-status]").textContent = session.checked
       ? "Review checked"
@@ -2416,6 +2920,12 @@ export class TextReviewPage {
           source: this.source,
           patientId: this.patient?.id,
           reviewSavedMappings: this.reviewSavedMappings,
+          ...(this.imported
+            ? {
+                importId: this.imported.id,
+                acknowledgeWarnings: this.warningsAcknowledged,
+              }
+            : {}),
         }),
       "analysis",
     );

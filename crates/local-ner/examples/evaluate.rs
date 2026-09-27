@@ -118,7 +118,15 @@ fn main() -> Result<(), &'static str> {
     }
     let cold_ms = timings[0];
     timings.sort_unstable();
-    let long_source = format!("{}Alex Morgan.", "No new concerns. ".repeat(1100));
+    let tail_text = "Alex Morgan.";
+    let prefix = "No new concerns. ".repeat((100_000 - tail_text.len()) / 17);
+    let long_source = format!(
+        "{}{}{}",
+        prefix,
+        " ".repeat(100_000 - prefix.len() - tail_text.len()),
+        tail_text
+    );
+    assert_eq!(long_source.chars().count(), 100_000);
     let windows = std::cell::Cell::new(0);
     let started = Instant::now();
     let long_result = detect(&root, &long_source, &cancel, |_, total| windows.set(total))?;

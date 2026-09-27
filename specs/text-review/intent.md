@@ -4,7 +4,8 @@
 
 ## Intent
 
-Provide a patient-first **De-identify text** page for pasted or typed source text,
+Provide a patient-first **De-identify text** page for source text typed, pasted,
+or extracted from an [imported document](../document-import/intent.md),
 with optional encrypted reviewed-note saving and no external AI service. Keep
 human review explicit.
 This slice implements part of the wider detection, transformation and review
@@ -12,7 +13,7 @@ intents; it does not claim those first-release intents are all complete.
 
 ## Included behaviour
 
-- Up to 20,000 Unicode characters, validated in the interface and Rust core.
+- Up to 100,000 Unicode characters, validated in the interface and Rust core.
 - Explicit one-time download of a pinned English BERT NER model (~110 MB), with
   progress, cancellation, byte-size checks and SHA-256 verification. Only model
   files are requested; source text is not part of any network request.
@@ -83,7 +84,7 @@ Before a note is saved, pasted source text and source detections are memory-only
 The saved original text, reviewed text, title/reference, review provenance, and
 explicitly saved mappings live only in the encrypted local database. Original
 text, provenance, and mappings are excluded from search and never eligible for
-egress. No browser storage, source files, model prompt logs,
+egress. No browser storage, plaintext source files, model prompt logs,
 telemetry or remote inference are introduced. Downloaded model assets remain in
 Application Support. Memory-only source handling does not promise secure erasure
 from OS swap, clipboard managers or a compromised device. OS-level text

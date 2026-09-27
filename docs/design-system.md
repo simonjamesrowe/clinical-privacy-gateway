@@ -158,3 +158,21 @@ still saves redactions through `save_mapping_from_review`.
 
 Follow-up: split the screens in `src/privacy/page.ts` into one module per
 screen. The shared builders already live in `src/privacy/components.ts`.
+
+## Document notes
+
+New note offers **Type or paste** and **Import document** tabs. The import
+picker accepts TXT, DOCX and text PDFs. The selected-document toolbar shows the
+basename, format, **Preview**, and **Change document**. Extraction limitations
+appear inline with an acknowledgment checkbox before **Find identifiers**.
+The source counter uses 100,000 Unicode characters for both input modes.
+
+Both note tables include an **Original** column. `documentButton` shows the
+file-format icon with a format-specific accessible label and tooltip. It is a
+separate action from opening the reviewed note. Preview replaces the page
+content rather than opening a modal. It labels source material explicitly,
+uses a simplified Word layout or inert PDF page images, and returns to the
+previous query/filter, editor, scroll and focus. `document-toolbar`,
+`document-content`, `document-paragraph`, `document-page` and `document-tabs`
+use the shared component tokens. The [interactive document specimen](../design-system/documents.html)
+uses the production page with synthetic bridge responses.

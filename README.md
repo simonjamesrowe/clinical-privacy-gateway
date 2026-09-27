@@ -12,7 +12,9 @@ or an autonomous anonymisation system.
 
 **Clinician’s Veil** opens with a welcome screen, native macOS menus and build
 information. Start in **Patients**: add or select a patient, then create a new
-note to type or paste source text (up to 20,000 characters). Download the
+note to type, paste, or import source text (up to 100,000 Unicode characters).
+Import `.txt`, `.docx`, or PDFs with selectable text; saving retains the exact
+original in the encrypted library. Use the document icon in Notes to preview it. Download the
 English BERT NER model once (~110 MB), then process text offline using local
 rules and the embedded model.
 

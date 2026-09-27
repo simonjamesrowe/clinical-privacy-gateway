@@ -50,3 +50,19 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Local document adapters
+
+The native document workflow also uses the following MIT-licensed components
+(or selects their MIT licence where alternatives are offered):
+
+- zip 6.0.0 — bounded DOCX archive reading.
+- quick-xml 0.38.4 — WordprocessingML extraction.
+- rfd 0.17.2 — native file selection.
+- base64 0.22.1 — in-memory PDF preview image transport.
+- objc2 0.6.4 and objc2-pdf-kit, objc2-foundation, objc2-app-kit 0.3.2 —
+  macOS framework bindings. PDFKit itself is supplied by macOS.
+
+Their distributed licence notices or upstream licensing statements are included
+in the matching `licenses/<component>-<version>.txt` files, bundled with the
+application.

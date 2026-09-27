@@ -186,9 +186,9 @@ mod tests {
             .unwrap();
         let mut tokenizer = Tokenizer::new(model);
         tokenizer.with_pre_tokenizer(Some(tokenizers::pre_tokenizers::whitespace::Whitespace));
-        let text = format!("{}tail", "word ".repeat(2000));
+        let text = format!("{}tail", "word ".repeat(19_999));
         let windows = encode_windows(&mut tokenizer, &text).unwrap();
-        assert_eq!(windows.len(), 5);
+        assert!(windows.len() > 40);
         assert!(windows.iter().all(|w| w.len() <= 512));
         assert_eq!(
             windows.last().unwrap().get_offsets().last().unwrap().1,

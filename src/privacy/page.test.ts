@@ -759,9 +759,9 @@ describe("text review", () => {
   it("gates detection by readiness, nonblank input and Unicode character limit", async () => {
     await mount();
     expect(button("[data-detect]").disabled).toBe(true);
-    input("🩺".repeat(20_000));
+    input("🩺".repeat(100_000));
     expect(button("[data-detect]").disabled).toBe(false);
-    input("🩺".repeat(20_001));
+    input("🩺".repeat(100_001));
     expect(button("[data-detect]").disabled).toBe(true);
     input(" \n");
     expect(button("[data-detect]").disabled).toBe(true);
@@ -1189,4 +1189,259 @@ describe("text review", () => {
     expect(root.textContent).toContain("Note saved.");
     expect(root.querySelector("dialog")).toBeNull();
   });
+});
+
+describe("document notes", () => {
+  const imported = {
+    id: 12,
+    document: {
+      name: "synthetic-consultation.docx",
+      format: "docx",
+      byteLength: 240,
+    },
+    extracted: {
+      text: source,
+      blocks: [
+        { kind: "heading", text: "Synthetic consultation" },
+        { kind: "paragraph", text: source },
+        { kind: "table", rows: [["Dose", "10 mg"]] },
+      ],
+      warnings: [],
+      pageCount: null,
+    },
+  };
+  async function newDocument(overrides: Record<string, unknown> = {}) {
+    mockLibrary({
+      import_document: imported,
+      open_document_preview: { ...imported, id: 99 },
+      ...overrides,
+    });
+    await mount(true, "patients");
+    await click("[data-start-note]");
+    await click('[data-input-mode="import"]');
+    await click("[data-choose-document]");
+  }
+  it("imports editable text with patient binding and uses its original handle for detection", async () => {
+    await newDocument();
+    expect(call).toHaveBeenCalledWith(
+      "import_document",
+      expect.objectContaining({ patientId: 7 }),
+    );
+    expect(root.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
+      source,
+    );
+    input("Corrected synthetic wording");
+    await click("[data-detect]");
+    expect(call).toHaveBeenCalledWith(
+      "detect_text",
+      expect.objectContaining({
+        source: "Corrected synthetic wording",
+        importId: 12,
+        patientId: 7,
+      }),
+    );
+  });
+  it("disposes a pending import and ignores its late result", async () => {
+    let resolve!: (value: unknown) => void;
+    mockLibrary({
+      import_document: () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    });
+    await mount(true, "patients");
+    await click("[data-start-note]");
+    await click('[data-input-mode="import"]');
+    await click("[data-choose-document]");
+    expect(button("[data-cancel]").hidden).toBe(false);
+    page.dispose();
+    expect(call).toHaveBeenCalledWith("discard_session", undefined);
+    resolve(imported);
+    await flush();
+    expect(root.textContent).toBe("");
+  });
+  it("requires acknowledging extraction limitations before detection", async () => {
+    await newDocument({
+      import_document: {
+        ...imported,
+        extracted: {
+          ...imported.extracted,
+          warnings: ["Image text is not extracted."],
+        },
+      },
+    });
+    expect(button("[data-detect]").disabled).toBe(true);
+    await click("[data-acknowledge-document]");
+    expect(button("[data-detect]").disabled).toBe(false);
+    await click("[data-detect]");
+    expect(call).toHaveBeenCalledWith(
+      "detect_text",
+      expect.objectContaining({ acknowledgeWarnings: true }),
+    );
+  });
+  it("preserves the editable text and exact-original preview when returning", async () => {
+    await newDocument();
+    input("Edited source for review");
+    await click("[data-preview-import]");
+    expect(root.textContent).toContain("Original document");
+    expect(root.textContent).toContain("Simplified layout");
+    expect(root.textContent).toContain(source);
+    expect(root.querySelector("table")!.textContent).toContain("10 mg");
+    expect(root.textContent).not.toContain("Edited source for review");
+    await click("[data-close-preview]");
+    expect(call).toHaveBeenCalledWith("close_document_preview", { id: 99 });
+    expect(root.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
+      "Edited source for review",
+    );
+    expect(document.activeElement).toBe(button("[data-preview-import]"));
+  });
+  it("preserves an existing import after cancelled or failed replacement", async () => {
+    await newDocument();
+    input("Edited before replacement");
+    const original = call.getMockImplementation()!;
+    call.mockImplementation(async (command, args) =>
+      command === "import_document" ? null : original(command, args),
+    );
+    await click("[data-change-document]");
+    await click("[data-confirm]");
+    expect(root.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
+      "Edited before replacement",
+    );
+    expect(root.textContent).toContain(imported.document.name);
+    call.mockImplementation(async (command, args) => {
+      if (command === "import_document")
+        throw "The document could not be read.";
+      return original(command, args);
+    });
+    await click("[data-change-document]");
+    await click("[data-confirm]");
+    expect(root.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe(
+      "Edited before replacement",
+    );
+    expect(root.textContent).toContain("The document could not be read.");
+  });
+  it("confirms switching to pasted text and drops the imported attachment", async () => {
+    await newDocument();
+    await click('[data-input-mode="paste"]');
+    expect(root.querySelector("[data-discard-confirm]")).not.toBeNull();
+    await click("[data-confirm]");
+    expect(call).toHaveBeenCalledWith("discard_session", undefined);
+    expect(root.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("");
+    expect(root.querySelector("[data-preview-import]")).toBeNull();
+  });
+  it("renders hostile filenames and document content as inert text", async () => {
+    const hostile =
+      '<img src="https://example.invalid/leak" onerror="alert(1)">';
+    await newDocument({
+      import_document: {
+        ...imported,
+        document: { ...imported.document, name: hostile },
+      },
+      open_document_preview: {
+        ...imported,
+        document: { ...imported.document, name: hostile },
+        extracted: {
+          ...imported.extracted,
+          blocks: [
+            { kind: "paragraph", text: hostile },
+            { kind: "table", rows: [[hostile]] },
+          ],
+        },
+      },
+    });
+    expect(root.querySelector("img")).toBeNull();
+    await click("[data-preview-import]");
+    expect(root.querySelector("img, iframe, object, a")).toBeNull();
+    expect(root.textContent).toContain(hostile);
+  });
+  it("opens original from search independently and restores the query and focus", async () => {
+    const note = {
+      id: 4,
+      patientId: 7,
+      patientName: patient.name,
+      title: "Synthetic review",
+      snippet: "Reviewed outcome",
+      createdAt: 1,
+      document: imported.document,
+    };
+    mockLibrary({
+      search_notes: [note],
+      open_document_preview: { ...imported, id: 99 },
+    });
+    await mount(true, "notes");
+    type("#search", "outcome");
+    await submit("form");
+    await click('[data-document="4"]');
+    expect(call).toHaveBeenCalledWith(
+      "open_document_preview",
+      expect.objectContaining({ noteId: 4 }),
+    );
+    expect(call).not.toHaveBeenCalledWith("open_saved_note", expect.anything());
+    await click("[data-close-preview]");
+    expect(root.querySelector<HTMLInputElement>("#search")!.value).toBe(
+      "outcome",
+    );
+    expect(document.activeElement).toBe(button('[data-document="4"]'));
+  });
+  it("requests PDF pages lazily and bounds navigation", async () => {
+    const pdf = {
+      ...imported,
+      document: { ...imported.document, name: "synthetic.pdf", format: "pdf" },
+      extracted: { ...imported.extracted, pageCount: 2 },
+    };
+    await newDocument({
+      import_document: pdf,
+      open_document_preview: { ...pdf, id: 99 },
+      document_preview_page: "data:image/png;base64,c3ludGhldGlj",
+    });
+    await click("[data-preview-import]");
+    await flush();
+    expect(call).toHaveBeenCalledWith(
+      "document_preview_page",
+      expect.objectContaining({ id: 99, page: 0, width: 800 }),
+    );
+    expect(button("[data-page-previous]").disabled).toBe(true);
+    await click("[data-page-next]");
+    expect(call).toHaveBeenCalledWith(
+      "document_preview_page",
+      expect.objectContaining({ page: 1 }),
+    );
+    expect(button("[data-page-next]").disabled).toBe(true);
+    expect(root.querySelector("img")!.alt).toBe("Original PDF page 2");
+  });
+});
+
+it("renders a full-length review with a tail identifier without dropping text", async () => {
+  const longSource =
+    "No new concerns. ".repeat(5881).padEnd(99_989, " ") + "Alex Morgan";
+  const longView: ReviewSession = {
+    ...initial,
+    source: longSource,
+    output: longSource.slice(0, 99_989) + "[PERSON_1]",
+    items: [
+      {
+        ...initial.items[0],
+        start: 99_989,
+        end: 100_000,
+        outputStart: 99_989,
+        outputEnd: 99_999,
+      },
+    ],
+  };
+  mockLibrary({ detect_text: longView });
+  await mount();
+  input(longSource);
+  const started = performance.now();
+  await click("[data-detect]");
+  const elapsed = performance.now() - started;
+  expect(root.querySelector("[data-source]")!.textContent).toBe(longSource);
+  expect(root.querySelector("[data-output]")!.textContent).toBe(
+    longView.output,
+  );
+  expect(root.querySelector("[data-source] mark")!.textContent).toBe(
+    "Alex Morgan",
+  );
+  console.info(
+    `Synthetic 100,000-character review render: ${Math.round(elapsed)} ms (jsdom)`,
+  );
 });

@@ -27,6 +27,7 @@
           <li><a href="#tables">Tables</a></li>
           <li><a href="#feedback">Feedback</a></li>
           <li><a href="#review">Review</a></li>
+          <li><a href="#documents">Documents</a></li>
           <li><a href="#screens">Screens</a></li>
         </ol>
       </nav>
@@ -677,6 +678,71 @@
                 </div>
               </section>
             </div>
+          </article>
+        </section>
+
+        <section class="library-section" id="documents">
+          <header>
+            <p class="eyebrow">Document notes</p>
+            <h2 class="section-title">Import and original previews</h2>
+          </header>
+          <article class="specimen">
+            <h3>Original-document action</h3>
+            <ul class="specimen__rules">
+              <li>
+                Show the file format and a document icon in the Original column;
+                keep the note title as the review action.
+              </li>
+              <li>
+                The accessible label and tooltip name the original format. The
+                action must not trigger the row opener.
+              </li>
+              <li>
+                Keep filenames out of search excerpts. Show them inside the
+                original preview and import toolbar.
+              </li>
+              <li>
+                Use the document toolbar, content and paragraph components with
+                shared tokens. Render text as text nodes and PDF pages as inert
+                images.
+              </li>
+              <li>
+                Import tabs share the keyboard tab pattern. Warnings require an
+                explicit check before analysis.
+              </li>
+            </ul>
+            <div class="specimen__demo">
+              <button
+                type="button"
+                class="button button--compact document-button"
+                aria-label="Preview original Word document"
+                title="Preview original Word document"
+              >
+                <span aria-hidden="true">▤</span>DOCX
+              </button>
+              <button
+                type="button"
+                class="button button--compact document-button"
+                aria-label="Preview original PDF"
+                title="Preview original PDF"
+              >
+                <span aria-hidden="true">▤</span>PDF
+              </button>
+              <button
+                type="button"
+                class="button button--compact document-button"
+                aria-label="Preview original text document"
+                title="Preview original text document"
+              >
+                <span aria-hidden="true">▤</span>TXT
+              </button>
+            </div>
+            <p>
+              <a href="./documents.html"
+                >Open the interactive document workflow</a
+              >. This uses the production components with synthetic responses
+              for import, review, save and search.
+            </p>
           </article>
         </section>
 

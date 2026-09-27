@@ -11,9 +11,15 @@ family, safeguarding, or professional information.
 _Avoid_: Data, content
 
 **Source text**:
-The identifiable text pasted by the clinician or produced directly by
-transcription before privacy transformation.
+The identifiable text typed or pasted by the clinician, extracted from an
+imported document, or produced directly by transcription before privacy
+transformation.
 _Avoid_: Raw note, original note
+
+**Original document**:
+The exact imported text, Word, or PDF file, retained with its reviewed note in
+the encrypted library. Editing extracted source text does not modify this file.
+_Avoid_: Attachment copy, sanitised document
 
 **Source audio**:
 The recording from which a transcript was produced, retained temporarily so the

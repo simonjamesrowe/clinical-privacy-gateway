@@ -1,4 +1,8 @@
+use crate::documents;
 use crate::storage::{MappingView, NoteSummary, NoteView, PatientView, Storage};
+use clinicians_veil_core::documents::{
+    DocumentFormat, DocumentMetadata, ExtractedDocument, OriginalDocument,
+};
 use clinicians_veil_core::privacy::{self, Decision, PrivacyResult, Session, SessionView};
 use clinicians_veil_ner::{assets, detect};
 use serde::Serialize;
@@ -24,6 +28,33 @@ struct Inner {
     note_id: Option<i64>,
     active: Option<(u64, Arc<AtomicBool>)>,
     next_session: u64,
+    import: Option<ImportedDocument>,
+    preview: Option<DocumentPreview>,
+}
+
+struct ImportedDocument {
+    id: u64,
+    patient_id: i64,
+    original: Arc<OriginalDocument>,
+    extracted: ExtractedDocument,
+}
+struct DocumentPreview {
+    id: u64,
+    original: Arc<OriginalDocument>,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportView {
+    id: u64,
+    document: DocumentMetadata,
+    extracted: ExtractedDocument,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewView {
+    id: u64,
+    document: DocumentMetadata,
+    extracted: ExtractedDocument,
 }
 
 impl PrivacyState {
@@ -64,6 +95,8 @@ impl PrivacyState {
             cancel.store(true, Ordering::Relaxed);
         }
         inner.session = None;
+        inner.import = None;
+        inner.preview = None;
         inner.patient_id = None;
         inner.note_id = None;
         Ok(())
@@ -228,6 +261,8 @@ pub async fn detect_text(
     source: String,
     patient_id: Option<i64>,
     review_saved_mappings: bool,
+    import_id: Option<u64>,
+    acknowledge_warnings: Option<bool>,
 ) -> PrivacyResult<SessionView> {
     privacy::validate_source(&source)?;
     if let Some(patient_id) = patient_id {
@@ -237,6 +272,12 @@ pub async fn detect_text(
     let op = state.begin(operation)?;
     let id = {
         let mut inner = state.lock()?;
+        validate_import(
+            &inner,
+            import_id,
+            patient_id,
+            acknowledge_warnings.unwrap_or(false),
+        )?;
         inner.session = None;
         inner.patient_id = patient_id;
         inner.note_id = None;
@@ -386,7 +427,7 @@ pub fn save_reviewed_note(
     revision: u64,
     title: String,
 ) -> PrivacyResult<NoteView> {
-    let inner = state.lock()?;
+    let mut inner = state.lock()?;
     if inner.active.is_some() {
         return Err("Wait for processing to finish.");
     }
@@ -397,8 +438,8 @@ pub fn save_reviewed_note(
     session.matches(session_id, revision)?;
     let (source_text, reviewed_text, provenance) = session.saveable_note()?;
     let note_id = inner.note_id;
-    drop(inner);
-    if let Some(note_id) = note_id {
+    let document = inner.import.as_ref().map(|import| import.original.clone());
+    let note = if let Some(note_id) = note_id {
         state.storage()?.update_note(
             note_id,
             patient_id,
@@ -408,15 +449,20 @@ pub fn save_reviewed_note(
             &provenance,
         )
     } else {
-        state.storage()?.save_note(
+        state.storage()?.save_note_with_document(
             patient_id,
             &title,
             None,
             &source_text,
             &reviewed_text,
             &provenance,
+            document.as_deref(),
         )
-    }
+    }?;
+    inner.note_id = Some(note.id);
+    inner.import = None;
+    inner.preview = None;
+    Ok(note)
 }
 
 #[tauri::command]
@@ -453,6 +499,8 @@ pub fn open_saved_note(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult
         return Err("The saved review record is unavailable.");
     }
     let view = session.view();
+    inner.import = None;
+    inner.preview = None;
     inner.session = Some(session);
     inner.patient_id = Some(patient_id);
     inner.note_id = Some(id);
@@ -464,12 +512,34 @@ pub fn open_saved_note(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult
 
 #[tauri::command]
 pub fn delete_note(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<()> {
-    state.storage()?.delete_note(id)
+    let mut inner = state.lock()?;
+    if inner.active.is_some() {
+        return Err("Wait for processing to finish.");
+    }
+    state.storage()?.delete_note(id)?;
+    inner.preview = None;
+    if inner.note_id == Some(id) {
+        inner.session = None;
+        inner.note_id = None;
+        inner.patient_id = None;
+        inner.import = None;
+    }
+    Ok(())
 }
 
 #[tauri::command]
 pub fn delete_patient(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<()> {
-    state.storage()?.delete_patient(id)
+    let mut inner = state.lock()?;
+    if inner.active.is_some() {
+        return Err("Wait for processing to finish.");
+    }
+    state.storage()?.delete_patient(id)?;
+    inner.session = None;
+    inner.note_id = None;
+    inner.patient_id = None;
+    inner.import = None;
+    inner.preview = None;
+    Ok(())
 }
 
 #[tauri::command]
@@ -635,5 +705,254 @@ mod tests {
         assert!(reviewed_output(&state.lock().unwrap(), 1, 2).is_err());
         state.discard().unwrap();
         assert!(reviewed_output(&state.lock().unwrap(), 1, 2).is_err());
+    }
+}
+
+fn validate_import(
+    inner: &Inner,
+    id: Option<u64>,
+    patient: Option<i64>,
+    acknowledged: bool,
+) -> PrivacyResult<()> {
+    match (&inner.import, id) {
+        (None, None) => Ok(()),
+        (Some(import), Some(id)) if import.id == id && Some(import.patient_id) == patient => {
+            if !import.extracted.warnings.is_empty() && !acknowledged {
+                Err("Check the extraction warnings before finding identifiers.")
+            } else {
+                Ok(())
+            }
+        }
+        _ => Err("This document belongs to another session. Choose the document again."),
+    }
+}
+
+#[tauri::command]
+pub async fn import_document(
+    app: AppHandle,
+    state: State<'_, PrivacyState>,
+    operation: u64,
+    patient_id: i64,
+) -> PrivacyResult<Option<ImportView>> {
+    state.storage()?.patient(patient_id)?;
+    let op = state.begin(operation)?;
+    if state.lock()?.session.is_some() {
+        return Err("Discard the current review before importing a document.");
+    }
+    let chosen = rfd::AsyncFileDialog::new()
+        .set_title("Choose a document")
+        .add_filter("Documents", &["txt", "docx", "pdf"])
+        .pick_file()
+        .await;
+    documents::cancelled(&op.cancel)?;
+    let Some(chosen) = chosen else {
+        return Ok(None);
+    };
+    let path = chosen.path().to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        progress(&app, op.id, "Extracting document text", 0, 0);
+        let original = Arc::new(documents::read(&path, &op.cancel)?);
+        let extracted = documents::extract(&original, &op.cancel, |done, total| {
+            progress(
+                &app,
+                op.id,
+                "Extracting document text",
+                done as u64,
+                total as u64,
+            )
+        })?;
+        let mut inner = op.state.lock()?;
+        documents::cancelled(&op.cancel)?;
+        inner.next_session += 1;
+        let id = inner.next_session;
+        let view = ImportView {
+            id,
+            document: original.metadata.clone(),
+            extracted: extracted.clone(),
+        };
+        inner.import = Some(ImportedDocument {
+            id,
+            patient_id,
+            original,
+            extracted,
+        });
+        inner.preview = None;
+        Ok(Some(view))
+    })
+    .await
+    .map_err(|_| "The document could not be imported. Choose it again.")?
+}
+
+#[tauri::command]
+pub fn release_import(state: State<'_, PrivacyState>, id: u64) -> PrivacyResult<()> {
+    let mut inner = state.lock()?;
+    if inner.active.is_some() || inner.session.is_some() {
+        return Err("Discard the review before releasing this document.");
+    }
+    if inner.import.as_ref().is_some_and(|import| import.id == id) {
+        inner.import = None;
+        inner.preview = None;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_document_preview(
+    app: AppHandle,
+    state: State<'_, PrivacyState>,
+    operation: u64,
+    note_id: Option<i64>,
+    import_id: Option<u64>,
+) -> PrivacyResult<PreviewView> {
+    let op = state.begin(operation)?;
+    // Saved-note IDs and import handles are separate namespaces; accept exactly one.
+    let original = match (note_id, import_id) {
+        (Some(id), None) => Arc::new(state.storage()?.document(id)?),
+        (None, Some(id)) => state
+            .lock()?
+            .import
+            .as_ref()
+            .filter(|import| import.id == id)
+            .map(|import| import.original.clone())
+            .ok_or("This imported document is no longer available.")?,
+        _ => return Err("Choose an original document to preview."),
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let extracted = documents::extract(&original, &op.cancel, |done, total| {
+            progress(
+                &app,
+                op.id,
+                "Opening original document",
+                done as u64,
+                total as u64,
+            )
+        })?;
+        let mut inner = op.state.lock()?;
+        documents::cancelled(&op.cancel)?;
+        inner.next_session += 1;
+        let id = inner.next_session;
+        let view = PreviewView {
+            id,
+            document: original.metadata.clone(),
+            extracted,
+        };
+        inner.preview = Some(DocumentPreview { id, original });
+        Ok(view)
+    })
+    .await
+    .map_err(|_| "The original document could not be previewed.")?
+}
+
+#[tauri::command]
+pub async fn document_preview_page(
+    state: State<'_, PrivacyState>,
+    operation: u64,
+    id: u64,
+    page: usize,
+    width: usize,
+) -> PrivacyResult<String> {
+    let op = state.begin(operation)?;
+    let original = state
+        .lock()?
+        .preview
+        .as_ref()
+        .filter(|preview| preview.id == id)
+        .map(|preview| preview.original.clone())
+        .ok_or("This preview is no longer available.")?;
+    if original.metadata.format != DocumentFormat::Pdf {
+        return Err("This document is not a PDF.");
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        documents::cancelled(&op.cancel)?;
+        let image = documents::render_page(&original.bytes, page, width)?;
+        documents::cancelled(&op.cancel)?;
+        if !op
+            .state
+            .lock()?
+            .preview
+            .as_ref()
+            .is_some_and(|preview| preview.id == id)
+        {
+            return Err("This preview is no longer available.");
+        }
+        Ok(image)
+    })
+    .await
+    .map_err(|_| "This PDF page could not be displayed.")?
+}
+
+#[tauri::command]
+pub fn close_document_preview(state: State<'_, PrivacyState>, id: u64) -> PrivacyResult<()> {
+    let mut inner = state.lock()?;
+    if inner
+        .preview
+        .as_ref()
+        .is_some_and(|preview| preview.id == id)
+    {
+        inner.preview = None;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod document_session_tests {
+    use super::*;
+    fn imported() -> ImportedDocument {
+        ImportedDocument {
+            id: 12,
+            patient_id: 7,
+            original: Arc::new(OriginalDocument {
+                metadata: DocumentMetadata {
+                    name: "synthetic.txt".into(),
+                    format: DocumentFormat::Txt,
+                    byte_length: 4,
+                },
+                bytes: b"text".to_vec(),
+            }),
+            extracted: ExtractedDocument {
+                text: "text".into(),
+                blocks: vec![],
+                warnings: vec!["Check extraction".into()],
+                page_count: None,
+            },
+        }
+    }
+    #[test]
+    fn imported_files_are_bound_to_patient_handle_and_warning_acknowledgement() {
+        let inner = Inner {
+            import: Some(imported()),
+            ..Inner::default()
+        };
+        assert!(validate_import(&inner, Some(12), Some(7), true).is_ok());
+        assert!(validate_import(&inner, Some(12), Some(7), false).is_err());
+        assert!(validate_import(&inner, Some(12), Some(8), true).is_err());
+        assert!(validate_import(&inner, Some(13), Some(7), true).is_err());
+        assert!(validate_import(&inner, None, Some(7), true).is_err());
+        assert!(validate_import(&Inner::default(), Some(12), Some(7), true).is_err());
+    }
+    #[test]
+    fn discard_drops_original_and_preview_and_cancels_pending_results() {
+        let state = PrivacyState {
+            inner: Arc::new(Mutex::new(Inner::default())),
+            root: PathBuf::new(),
+            storage: None,
+        };
+        let import = imported();
+        let weak = Arc::downgrade(&import.original);
+        {
+            let mut inner = state.lock().unwrap();
+            inner.preview = Some(DocumentPreview {
+                id: 13,
+                original: import.original.clone(),
+            });
+            inner.import = Some(import);
+        }
+        let op = state.begin(1).unwrap();
+        state.discard().unwrap();
+        assert!(weak.upgrade().is_none());
+        assert!(op.cancel.load(Ordering::Relaxed));
+        assert!(state.lock().unwrap().preview.is_none());
+        drop(op);
+        assert!(state.lock().unwrap().active.is_none());
     }
 }

@@ -202,8 +202,8 @@ fn rules_are_bounded_on_adversarial_long_input() {
 #[test]
 fn input_limit_counts_unicode_characters_and_rejects_empty() {
     assert!(validate_source(" \n").is_err());
-    assert!(validate_source(&"🩺".repeat(20_000)).is_ok());
-    assert!(validate_source(&"🩺".repeat(20_001)).is_err());
+    assert!(validate_source(&"🩺".repeat(100_000)).is_ok());
+    assert!(validate_source(&"🩺".repeat(100_001)).is_err());
 }
 
 #[test]
@@ -295,4 +295,33 @@ fn only_an_affirmative_decision_can_be_saved_as_a_default() {
     let mapping = session.mapping_for_group(id).unwrap();
     assert_eq!(mapping.phrase, "Alex Morgan");
     assert_eq!(mapping.replacement, "[CLIENT]");
+}
+
+#[test]
+fn full_length_source_preserves_tail_identifiers_and_expanded_final_scan() {
+    let tail = " alex.morgan@example.invalid";
+    let text = format!("{}{}", "x".repeat(100_000 - tail.len()), tail);
+    let mut session = Session::new(1, text.clone(), detect_rules(&text)).unwrap();
+    let email = session
+        .view()
+        .items
+        .iter()
+        .find(|item| item.category == Category::Email)
+        .unwrap()
+        .id;
+    session
+        .decide(
+            email,
+            Decision::Edit,
+            Some("[SYNTHETIC_CLIENT_EMAIL_CONTACT_ADDRESS]".into()),
+        )
+        .unwrap();
+    let scan = session.scan_text().unwrap();
+    assert!(scan.len() > 100_000);
+    session.finish_scan(detect_rules(&scan)).unwrap();
+    assert!(session
+        .copy_text()
+        .unwrap()
+        .ends_with("[SYNTHETIC_CLIENT_EMAIL_CONTACT_ADDRESS]"));
+    assert!(validate_source(&"x".repeat(99_999)).is_ok());
 }
