@@ -216,6 +216,7 @@ export function signaturePad(
     "Cancel signature change",
   );
   function update() {
+    typed.value = draft.typed;
     drawing.hidden = !draft.editing;
     preview.hidden = draft.editing;
     change.hidden = draft.editing;
