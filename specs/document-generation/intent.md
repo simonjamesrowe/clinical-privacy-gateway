@@ -69,6 +69,8 @@ page breaks.
 - Patient metadata, note titles, source snapshots, review provenance,
   restoration mappings, clinician details, signatures, and API keys never enter
   the provider request.
+- The API key is retrieved from Keychain at most once per app process and kept
+  only in a process-memory session cache; explicit removal clears both copies.
 - Clinical strings and signature bytes do not appear in operational logs,
   errors, telemetry, filenames, or debug formatting.
 - No automatic retries, redirects, silent truncation, background generation,

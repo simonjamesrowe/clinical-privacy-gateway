@@ -73,6 +73,10 @@ Provider credentials use a separate Keychain item. The encrypted database key,
 provider credential, clinical material, source metadata, token map, clinician
 profile, and signature have separate lifecycles and are never combined in logs.
 Recording a credential does not enable clinical sending.
+After the first successful Keychain read, the OpenAI credential is retained only
+in process memory for the rest of that app session so Settings, connection tests
+and document generation do not repeatedly request Keychain access. Removing the
+key clears both Keychain and the session cache; quitting the app clears the cache.
 Settings can enable the route only after the clinician explicitly records all
 four governance confirmations for the saved provider configuration. The native
 command validates that every confirmation is present and that a Keychain

@@ -27,12 +27,13 @@ content in the library and screens.
 
 ```text
 Welcome
+  ├─ Standard app header and navigation
   ├─ New patient  → patient form
   ├─ New note     → searchable patient chooser
   ├─ New document → searchable patient chooser
   └─ Patients · Notes · Documents · Redactions · Document prompt templates · Settings
 
-App header: [mark] Clinician’s Veil   Patients  Notes  Documents  Redactions  Document prompt templates  Settings   ● On this Mac
+App header (including Welcome): [mark] Clinician’s Veil   Patients  Notes  Documents  Redactions  Document prompt templates  Settings   ● On this Mac
 
 Patients                      searchable table
   New patient                 page form

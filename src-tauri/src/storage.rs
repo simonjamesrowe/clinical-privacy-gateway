@@ -17,13 +17,14 @@ use serde::Serialize;
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 const KEYCHAIN_SERVICE: &str = "dev.simonrowe.cliniciansveil";
 const KEYCHAIN_ACCOUNT: &str = "encrypted-note-library-key";
 const OPENAI_KEYCHAIN_ACCOUNT: &str = "openai-api-key";
+static OPENAI_KEY_CACHE: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
 const STORAGE_ERROR: &str =
     "The encrypted note library is unavailable. Reopen the app and try again.";
 const STORAGE_CONFLICT: &str = "A redaction with that phrase and category already exists.";
@@ -1622,13 +1623,25 @@ fn load_or_create_key() -> PrivacyResult<[u8; 32]> {
 }
 
 pub fn openai_key_configured() -> bool {
-    find_generic_password(None, KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT).is_ok()
+    load_openai_key().is_ok()
 }
 
 pub fn load_openai_key() -> PrivacyResult<Vec<u8>> {
-    find_generic_password(None, KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT)
+    let cache = OPENAI_KEY_CACHE.get_or_init(|| Mutex::new(None));
+    if let Some(key) = cache
+        .lock()
+        .map_err(|_| "The OpenAI API key in Keychain is unavailable.")?
+        .as_ref()
+    {
+        return Ok(key.clone());
+    }
+    let key = find_generic_password(None, KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT)
         .map(|(password, _)| password.as_ref().to_vec())
-        .map_err(|_| "Configure the OpenAI API key in Settings first.")
+        .map_err(|_| "Configure the OpenAI API key in Settings first.")?;
+    *cache
+        .lock()
+        .map_err(|_| "The OpenAI API key in Keychain is unavailable.")? = Some(key.clone());
+    Ok(key)
 }
 
 pub fn save_openai_key(value: &str) -> PrivacyResult<()> {
@@ -1648,6 +1661,11 @@ pub fn save_openai_key(value: &str) -> PrivacyResult<()> {
             .set_generic_password(KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT, value.as_bytes())
             .map_err(|_| "The OpenAI API key could not be saved in Keychain.")?;
     }
+    *OPENAI_KEY_CACHE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .map_err(|_| "The OpenAI API key could not be cached for this app session.")? =
+        Some(value.as_bytes().to_vec());
     Ok(())
 }
 
@@ -1655,6 +1673,10 @@ pub fn remove_openai_key() -> PrivacyResult<()> {
     if let Ok((_, item)) = find_generic_password(None, KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT) {
         item.delete();
     }
+    *OPENAI_KEY_CACHE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .map_err(|_| "The OpenAI API key could not be removed from this app session.")? = None;
     Ok(())
 }
 

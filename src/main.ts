@@ -33,6 +33,13 @@ function aboutMarkup(): string {
 
 function render(): void {
   app.innerHTML = `
+    <header class="app-header welcome-header">
+      <div class="app-header__inner">
+        <span class="brand welcome-brand"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span><span>Clinician’s Veil</span></span>
+        <nav class="primary-nav" aria-label="Application"><button type="button" data-open-patients>Patients</button><button type="button" data-open-notes>Notes</button><button type="button" data-open-documents>Documents</button><button type="button" data-open-redactions>Redactions</button><button type="button" data-open-templates>Document prompt templates</button><button type="button" data-open-settings>Settings</button></nav>
+        <span class="local-indicator">On this Mac</span>
+      </div>
+    </header>
     <section class="welcome" aria-labelledby="welcome-heading">
       <div class="welcome__ledger" aria-hidden="true">
         <span>LOCAL / 01</span>
@@ -44,7 +51,6 @@ function render(): void {
         <h1 id="welcome-heading">Welcome to<br /><em>Clinician’s Veil.</em></h1>
         <p class="welcome__description">Start clinical work or return to your encrypted patient, note and document libraries.</p>
         <div class="welcome-actions" aria-label="Start work"><button type="button" class="welcome-start" data-new-patient>New patient →</button><button type="button" class="welcome-start" data-new-note>New note →</button><button type="button" class="welcome-start" data-new-document>New document →</button></div>
-        <nav class="primary-nav welcome-nav" aria-label="Application"><button type="button" data-open-patients>Patients</button><button type="button" data-open-notes>Notes</button><button type="button" data-open-documents>Documents</button><button type="button" data-open-redactions>Redactions</button><button type="button" data-open-templates>Document prompt templates</button><button type="button" data-open-settings>Settings</button></nav>
       </div>
       <footer class="welcome__footer">
         <span>${aboutBuildLine(buildInfo)}</span>
@@ -61,6 +67,7 @@ function render(): void {
     ?.addEventListener("click", closeAbout);
   const openWorkspace = (screen: WorkspaceScreen) => {
     const workspace = document.createElement("div");
+    app.querySelector(".welcome-header")?.remove();
     app.querySelector(".welcome")?.replaceWith(workspace);
     page = new TextReviewPage(
       workspace,
