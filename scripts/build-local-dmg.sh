@@ -87,17 +87,47 @@ if ! security find-identity -v -p codesigning "$keychain_path" | grep -Fq "\"$id
   exit 1
 fi
 
+login_keychain="$HOME/Library/Keychains/login.keychain-db"
+
+# `security list-keychains` prints every path indented and double-quoted.
+# Strip both before reuse: a leftover quote or space makes `security` treat the
+# entry as relative to ~/Library/Keychains and silently replaces the login
+# keychain with a path that does not exist. Every app that reads the login
+# keychain then fails until the search list is repaired by hand.
+parse_keychain_path() {
+  local line=$1
+  line=${line#"${line%%[![:space:]]*}"}
+  line=${line%"${line##*[![:space:]]}"}
+  line=${line#\"}
+  line=${line%\"}
+  printf '%s' "$line"
+}
+
 original_keychains=()
-while IFS= read -r keychain; do
-  keychain=${keychain#\"}
-  keychain=${keychain%\"}
+while IFS= read -r line; do
+  keychain=$(parse_keychain_path "$line")
+  [[ -z "$keychain" ]] && continue
+  if [[ "$keychain" != /* || ! -f "$keychain" ]]; then
+    echo "Refusing to rewrite the keychain search list: unexpected entry '$keychain'." >&2
+    exit 1
+  fi
   original_keychains+=("$keychain")
 done < <(security list-keychains -d user)
+
+if [[ ${#original_keychains[@]} -eq 0 ]]; then
+  echo "Refusing to rewrite the keychain search list: no user keychains found." >&2
+  exit 1
+fi
 
 restore_keychain_search_list() {
   local status=$?
   trap - EXIT
   security list-keychains -d user -s "${original_keychains[@]}" || status=1
+  # The login keychain must survive whatever happened above.
+  if ! security list-keychains -d user | grep -Fq "$login_keychain"; then
+    echo "Login keychain missing from search list after restore; resetting to the default." >&2
+    security list-keychains -d user -s "$login_keychain" || status=1
+  fi
   exit "$status"
 }
 trap restore_keychain_search_list EXIT
