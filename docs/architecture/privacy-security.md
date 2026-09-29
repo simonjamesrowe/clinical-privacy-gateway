@@ -26,7 +26,7 @@ unlocked system. FileVault remains complementary and expected.
 | Document prompt templates        | Until archived; editable and restorable    | No         | Only inside reviewed payload |
 | Patient document revisions       | Until document or patient deletion         | No         | Never automatically          |
 | Submission/restoration records   | With their patient document                | No         | Never                        |
-| Clinician profile and signature  | Until replaced or removed                  | No         | Never                        |
+| Clinician profile, PDF header and signature | Until replaced or removed        | No         | Never                        |
 
 Expiry removes source audio, the original aligned transcript, alignment data,
 and any derived temporary files as one operation. Deleting a note removes its
@@ -140,4 +140,7 @@ schema excludes images and links, Markdown HTML is disabled, and clipboard HTML
 is stripped before parsing. Source instructions still appear in the exact
 outgoing payload review. Signature capture uses a local canvas; the native
 boundary decodes and validates bounded PNG pixels before encrypted persistence.
-Neither operation requires or enables AI egress.
+Generated output is opened in the same constrained editor. PDF export loads a
+saved revision by opaque ID, renders its header and optional signature locally,
+and uses a native save picker with an opaque default filename. None of these
+operations requires or enables AI egress.

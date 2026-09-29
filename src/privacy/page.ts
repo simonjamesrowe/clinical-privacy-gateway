@@ -205,6 +205,7 @@ export class TextReviewPage {
   private usagePeriod: "month" | "all" = "month";
   private preparedDocument: PreparedDocumentSubmission | null = null;
   private generatedDocument: GeneratedDocument | null = null;
+  private generatedIncludeSignature = false;
   private documentId: number | undefined;
   private templateEdit: TemplateEdit | null = null;
   private templateEditor: ReturnType<typeof markdownEditor> | null = null;
@@ -871,6 +872,8 @@ export class TextReviewPage {
           String(data.get(key) ?? "") !==
           String(this.documentSettings?.[key as "displayName"] ?? ""),
       ) ||
+      String(data.get("letterHeader") ?? "") !==
+        (this.documentSettings?.letterHeader ?? "") ||
       String(data.get("model") ?? "") !==
         (this.documentSettings?.openaiModel ?? ""),
     );
@@ -2599,16 +2602,29 @@ export class TextReviewPage {
             "Cancel",
           ),
           h(
-            "button",
-            { type: "submit", class: "button button--primary" },
-            "Save changes",
+            "div",
+            { class: "page-actions" },
+            h("button", { type: "submit", class: "button" }, "Save changes"),
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button button--primary",
+                "data-save-export-document": true,
+                onclick: () => void this.saveEditedDocument(edit, true),
+              },
+              "Save & export PDF",
+            ),
           ),
         ),
       ),
     ];
   }
 
-  private async saveEditedDocument(edit: DocumentEdit): Promise<void> {
+  private async saveEditedDocument(
+    edit: DocumentEdit,
+    exportPdf = false,
+  ): Promise<void> {
     const saved = await this.perform("Saving document…", () =>
       this.bridge.call<PatientDocument>("update_patient_document", {
         id: edit.document.id,
@@ -2619,13 +2635,29 @@ export class TextReviewPage {
       }),
     );
     if (saved && this.patient) {
+      const exported = exportPdf
+        ? await this.exportDocumentPdf(saved.id)
+        : undefined;
       const patientId = this.patient.id;
       this.documentEdit = null;
       await this.show(
         { name: "patient", patientId, tab: "documents" },
-        { flash: "Document updated." },
+        {
+          flash:
+            exported === true
+              ? "Document updated and PDF exported."
+              : exported === false
+                ? "Document updated. PDF export cancelled."
+                : "Document updated.",
+        },
       );
     } else this.render();
+  }
+
+  private async exportDocumentPdf(id: number): Promise<boolean | undefined> {
+    return await this.perform("Exporting PDF…", () =>
+      this.bridge.call<boolean>("export_patient_document_pdf", { id }),
+    );
   }
 
   private newDocumentScreen(): Node[] {
@@ -2890,6 +2922,14 @@ export class TextReviewPage {
   private documentSubmissionScreen(): Node[] {
     const prepared = this.preparedDocument!;
     const generated = this.generatedDocument;
+    if (generated)
+      this.documentEditor = markdownEditor(
+        generated.text,
+        (value) => {
+          generated.text = value;
+        },
+        { document: true },
+      );
     const model = this.documentSettings?.models?.find(
       (model) => model.id === prepared.model,
     );
@@ -2912,35 +2952,80 @@ export class TextReviewPage {
             "section",
             { class: "form-stack" },
             h(
-              "p",
-              { class: "muted" },
-              `Latest generation: ${generated.usage.latestCostNanos === null ? "Cost unknown" : usd(generated.usage.latestCostNanos)} · Total for this report: ${usd(generated.usage.knownCostNanos)}${generated.usage.unknownCostAttempts ? " + unknown costs" : ""}`,
+              "div",
+              { class: "editor-layout" },
+              h(
+                "aside",
+                { class: "panel form-stack editor-details" },
+                h("h2", { class: "section-title" }, "Document details"),
+                h(
+                  "p",
+                  { class: "muted" },
+                  `Latest generation: ${generated.usage.latestCostNanos === null ? "Cost unknown" : usd(generated.usage.latestCostNanos)} · Total for this report: ${usd(generated.usage.knownCostNanos)}${generated.usage.unknownCostAttempts ? " + unknown costs" : ""}`,
+                ),
+                h(
+                  "label",
+                  { class: "check-row" },
+                  h("input", {
+                    type: "checkbox",
+                    "data-generated-signature": true,
+                    checked: this.generatedIncludeSignature,
+                    disabled: !this.documentSettings?.hasSignature,
+                    onchange: (event) => {
+                      this.generatedIncludeSignature = (
+                        event.target as HTMLInputElement
+                      ).checked;
+                    },
+                  }),
+                  h(
+                    "span",
+                    {},
+                    h("strong", {}, "Include clinician signature"),
+                    h(
+                      "small",
+                      {},
+                      this.documentSettings?.hasSignature
+                        ? "The saved signature is added locally."
+                        : "Add a signature in Settings before selecting this.",
+                    ),
+                  ),
+                ),
+                h(
+                  "p",
+                  { class: "hint" },
+                  `${generated.exactReplacements} exact replacements restored on this Mac. This is a draft for your review.`,
+                ),
+              ),
+              h(
+                "section",
+                { class: "form-stack", "aria-label": "Document content" },
+                h("h2", { class: "section-title" }, "Document text"),
+                this.documentEditor!.element,
+              ),
             ),
             h(
-              "label",
-              { class: "field" },
-              h("span", {}, "Document text"),
-              h("textarea", {
-                rows: 18,
-                value: generated.text,
-                oninput: (event) => {
-                  generated.text = (event.target as HTMLTextAreaElement).value;
+              "div",
+              { class: "form-actions" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button",
+                  "data-save-generated": true,
+                  onclick: () => void this.saveGeneratedDraft(false),
                 },
-              }),
-            ),
-            h(
-              "p",
-              { class: "hint" },
-              `${generated.exactReplacements} exact replacements restored on this Mac. This is a draft for your review.`,
-            ),
-            h(
-              "button",
-              {
-                type: "button",
-                class: "button button--primary",
-                onclick: () => void this.saveGeneratedDraft(),
-              },
-              "Save draft",
+                "Save draft",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button button--primary",
+                  "data-export-generated": true,
+                  onclick: () => void this.saveGeneratedDraft(true),
+                },
+                "Save draft & export PDF",
+              ),
             ),
           )
         : h(
@@ -3111,37 +3196,44 @@ export class TextReviewPage {
         }),
       "generation",
     );
-    if (generated) this.generatedDocument = generated;
-    else this.preparedDocument = null; // A consumed approval can never be retried.
+    if (generated) {
+      this.generatedDocument = generated;
+      this.generatedIncludeSignature = false;
+    } else this.preparedDocument = null; // A consumed approval can never be retried.
     this.render();
   }
 
-  private async saveGeneratedDraft(): Promise<void> {
+  private async saveGeneratedDraft(exportPdf: boolean): Promise<void> {
     const generated = this.generatedDocument;
     if (!generated) return;
     const saved = await this.perform("Saving document draft…", () =>
-      this.bridge.call("save_patient_document", {
+      this.bridge.call<PatientDocument>("save_patient_document", {
         id: generated.documentId,
         patientId: this.patient?.id,
         title: this.documentDraft.title,
         templateId: this.documentDraft.templateId,
         reviewed: false,
-        includeSignature: false,
+        includeSignature: this.generatedIncludeSignature,
         sourceNoteIds: [...this.documentDraft.noteIds],
-        body: {
-          blocks: generated.text.split("\n").map((text) => ({
-            kind: "paragraph",
-            runs: [{ text, bold: false }],
-          })),
-        },
+        body: markdownToDocumentBody(generated.text),
       }),
     );
     if (saved && this.patient) {
+      const exported = exportPdf
+        ? await this.exportDocumentPdf(saved.id)
+        : undefined;
       this.generatedDocument = null;
       this.preparedDocument = null;
       await this.show(
         { name: "patient", patientId: this.patient.id, tab: "documents" },
-        { flash: "Document draft saved." },
+        {
+          flash:
+            exported === true
+              ? "Document draft saved and PDF exported."
+              : exported === false
+                ? "Document draft saved. PDF export cancelled."
+                : "Document draft saved.",
+        },
       );
     } else this.render();
   }
@@ -4134,6 +4226,27 @@ export class TextReviewPage {
             "qualifications",
             settings?.qualifications ?? "",
           ),
+          h(
+            "label",
+            { class: "field field--wide" },
+            h("span", {}, "Document header"),
+            h(
+              "textarea",
+              {
+                name: "letterHeader",
+                rows: 4,
+                maxlength: 1000,
+                placeholder:
+                  "Clinic or service name\nAddress and contact details",
+              },
+              value("letterHeader", settings?.letterHeader ?? ""),
+            ),
+            h(
+              "span",
+              { class: "hint" },
+              "Shown at the top of locally exported patient-document PDFs.",
+            ),
+          ),
         ),
       ),
       h(
@@ -4201,6 +4314,7 @@ export class TextReviewPage {
         displayName: String(data.get("displayName") ?? ""),
         role: String(data.get("role") ?? ""),
         qualifications: String(data.get("qualifications") ?? ""),
+        letterHeader: String(data.get("letterHeader") ?? ""),
         openaiModel: String(data.get("model") ?? ""),
         apiKey: apiKey || undefined,
         signature,

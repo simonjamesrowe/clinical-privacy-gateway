@@ -32,6 +32,8 @@ pub struct ClinicianProfile {
     pub display_name: String,
     pub role: String,
     pub qualifications: String,
+    #[serde(default)]
+    pub letter_header: String,
     pub has_signature: bool,
 }
 

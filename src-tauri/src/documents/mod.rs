@@ -1,5 +1,6 @@
 //! Local, bounded document adapters. Errors never contain paths or clinical material.
 mod docx;
+pub mod export_pdf;
 mod pdf;
 use clinicians_veil_core::{documents::*, privacy::PrivacyResult};
 use std::{

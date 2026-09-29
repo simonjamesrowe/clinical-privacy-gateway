@@ -122,10 +122,17 @@ pub struct ClinicianProfileView {
     pub display_name: String,
     pub role: String,
     pub qualifications: String,
+    pub letter_header: String,
     pub has_signature: bool,
     pub signature_png: Option<String>,
     pub openai_model: String,
     pub clinical_sending_enabled: bool,
+}
+
+pub struct DocumentExport {
+    pub document: PatientDocument,
+    pub clinician: ClinicianProfile,
+    pub signature: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -244,6 +251,7 @@ impl Storage {
                display_name TEXT NOT NULL DEFAULT '',
                role TEXT NOT NULL DEFAULT '',
                qualifications TEXT NOT NULL DEFAULT '',
+               letter_header TEXT NOT NULL DEFAULT '',
                signature BLOB,
                openai_model TEXT NOT NULL DEFAULT '',
                clinical_sending_enabled INTEGER NOT NULL DEFAULT 0
@@ -348,6 +356,27 @@ impl Storage {
                 )
                 .map_err(|_| STORAGE_ERROR)?;
         }
+        let has_letter_header = connection
+            .prepare("PRAGMA table_info(clinician_profile)")
+            .map_err(|_| STORAGE_ERROR)?
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|_| STORAGE_ERROR)?
+            .filter_map(Result::ok)
+            .any(|name| name == "letter_header");
+        if !has_letter_header {
+            connection
+                .execute(
+                    "ALTER TABLE clinician_profile ADD COLUMN letter_header TEXT NOT NULL DEFAULT ''",
+                    [],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+        }
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO schema_migrations(version) VALUES (5)",
+                [],
+            )
+            .map_err(|_| STORAGE_ERROR)?;
         connection
             .execute(
                 "UPDATE clinician_profile SET openai_model = ?1 WHERE openai_model = ''",
@@ -824,7 +853,7 @@ impl Storage {
         self.with_connection(|connection| {
             connection
                 .query_row(
-                    "SELECT display_name, role, qualifications, signature,
+                    "SELECT display_name, role, qualifications, letter_header, signature,
                             openai_model, clinical_sending_enabled
                      FROM clinician_profile WHERE singleton = 1",
                     [],
@@ -833,13 +862,14 @@ impl Storage {
                             display_name: row.get(0)?,
                             role: row.get(1)?,
                             qualifications: row.get(2)?,
-                            has_signature: row.get::<_, Option<Vec<u8>>>(3)?.is_some(),
-                            signature_png: row.get::<_, Option<Vec<u8>>>(3)?.map(|bytes| {
+                            letter_header: row.get(3)?,
+                            has_signature: row.get::<_, Option<Vec<u8>>>(4)?.is_some(),
+                            signature_png: row.get::<_, Option<Vec<u8>>>(4)?.map(|bytes| {
                                 use base64::Engine;
                                 base64::engine::general_purpose::STANDARD.encode(bytes)
                             }),
-                            openai_model: row.get(4)?,
-                            clinical_sending_enabled: row.get(5)?,
+                            openai_model: row.get(5)?,
+                            clinical_sending_enabled: row.get(6)?,
                         })
                     },
                 )
@@ -852,6 +882,7 @@ impl Storage {
         display_name: &str,
         role: &str,
         qualifications: &str,
+        letter_header: &str,
         signature: Option<&[u8]>,
         remove_signature: bool,
         openai_model: &str,
@@ -866,6 +897,11 @@ impl Storage {
             qualifications,
             240,
             "Use at most 240 characters for qualifications.",
+        )?;
+        let letter_header = normalise_limited(
+            letter_header,
+            1_000,
+            "Use at most 1,000 characters for the document header.",
         )?;
         let openai_model = normalise_limited(
             openai_model,
@@ -883,10 +919,11 @@ impl Storage {
             connection
                 .execute(
                     "UPDATE clinician_profile SET display_name = ?1, role = ?2, qualifications = ?3,
-                     signature = CASE WHEN ?4 THEN NULL WHEN ?5 IS NOT NULL THEN ?5 ELSE signature END,
-                     clinical_sending_enabled = CASE WHEN openai_model <> ?6 THEN 0 ELSE clinical_sending_enabled END,
-                     openai_model = ?6 WHERE singleton = 1",
-                    params![display_name, role, qualifications, remove_signature, signature, openai_model],
+                     letter_header = ?4,
+                     signature = CASE WHEN ?5 THEN NULL WHEN ?6 IS NOT NULL THEN ?6 ELSE signature END,
+                     clinical_sending_enabled = CASE WHEN openai_model <> ?7 THEN 0 ELSE clinical_sending_enabled END,
+                     openai_model = ?7 WHERE singleton = 1",
+                    params![display_name, role, qualifications, letter_header, remove_signature, signature, openai_model],
                 )
                 .map_err(|_| STORAGE_ERROR)?;
             Ok(())
@@ -963,6 +1000,78 @@ impl Storage {
         self.with_connection(|connection| select_document(connection, id))
     }
 
+    pub fn document_export(&self, id: i64) -> PrivacyResult<DocumentExport> {
+        self.with_connection(|connection| {
+            let document = select_document(connection, id)?;
+            let (materialized, clinician_snapshot, signature_snapshot): (
+                bool,
+                Option<String>,
+                Option<Vec<u8>>,
+            ) = connection
+                .query_row(
+                    "SELECT materialized, clinician_snapshot, signature_snapshot
+                     FROM patient_documents WHERE id = ?1",
+                    [id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            if !materialized {
+                return Err(DOCUMENT_UNAVAILABLE);
+            }
+            let (display_name, role, qualifications, letter_header, current_signature): (
+                String,
+                String,
+                String,
+                String,
+                Option<Vec<u8>>,
+            ) = connection
+                .query_row(
+                    "SELECT display_name, role, qualifications, letter_header, signature
+                     FROM clinician_profile WHERE singleton = 1",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    },
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            let current = ClinicianProfile {
+                display_name,
+                role,
+                qualifications,
+                letter_header,
+                has_signature: current_signature.is_some(),
+            };
+            let clinician = if document.reviewed {
+                clinician_snapshot
+                    .as_deref()
+                    .map(serde_json::from_str)
+                    .transpose()
+                    .map_err(|_| STORAGE_ERROR)?
+                    .unwrap_or(current)
+            } else {
+                current
+            };
+            let signature = if !document.include_signature {
+                None
+            } else if document.reviewed {
+                signature_snapshot
+            } else {
+                current_signature
+            };
+            Ok(DocumentExport {
+                document,
+                clinician,
+                signature,
+            })
+        })
+    }
+
     pub fn save_document(
         &self,
         id: Option<i64>,
@@ -1037,18 +1146,19 @@ impl Storage {
         let body_json = serde_json::to_string(body).map_err(|_| STORAGE_ERROR)?;
         self.with_connection(|connection| {
             let transaction = connection.transaction().map_err(|_| STORAGE_ERROR)?;
-            let profile: (String, String, String, Option<Vec<u8>>) = transaction
+            let profile: (String, String, String, String, Option<Vec<u8>>) = transaction
                 .query_row(
-                    "SELECT display_name, role, qualifications, signature FROM clinician_profile WHERE singleton = 1",
+                    "SELECT display_name, role, qualifications, letter_header, signature FROM clinician_profile WHERE singleton = 1",
                     [],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
                 )
                 .map_err(|_| STORAGE_ERROR)?;
             let clinician = ClinicianProfile {
-                display_name: profile.0,
-                role: profile.1,
-                qualifications: profile.2,
-                has_signature: profile.3.is_some(),
+                display_name: profile.0.clone(),
+                role: profile.1.clone(),
+                qualifications: profile.2.clone(),
+                letter_header: profile.3.clone(),
+                has_signature: profile.4.is_some(),
             };
             let clinician_json = serde_json::to_string(&clinician).map_err(|_| STORAGE_ERROR)?;
             let document_id = if let Some(id) = id {
@@ -1059,7 +1169,7 @@ impl Storage {
                          clinician_snapshot = CASE WHEN ?3 THEN ?5 ELSE clinician_snapshot END,
                          signature_snapshot = CASE WHEN ?3 AND ?4 THEN ?6 WHEN ?3 THEN NULL ELSE signature_snapshot END,
                          updated_at = ?7 WHERE id = ?8 AND patient_id = ?9",
-                        params![title, body_json, reviewed, include_signature, clinician_json, profile.3, timestamp, id, patient_id, materialized],
+                        params![title, body_json, reviewed, include_signature, clinician_json, profile.4, timestamp, id, patient_id, materialized],
                     )
                     .map_err(|_| STORAGE_ERROR)?;
                 if changed == 0 {
@@ -1074,7 +1184,7 @@ impl Storage {
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
                         params![patient_id, title, template.id, template.name, template.version, body_json, reviewed,
                                 include_signature, materialized, reviewed.then_some(clinician_json),
-                                (reviewed && include_signature).then_some(profile.3).flatten(), timestamp],
+                                (reviewed && include_signature).then_some(profile.4).flatten(), timestamp],
                     )
                     .map_err(|_| STORAGE_ERROR)?;
                 transaction.last_insert_rowid()
@@ -1131,18 +1241,19 @@ impl Storage {
         let body_json = serde_json::to_string(body).map_err(|_| STORAGE_ERROR)?;
         self.with_connection(|connection| {
             let transaction = connection.transaction().map_err(|_| STORAGE_ERROR)?;
-            let profile: (String, String, String, Option<Vec<u8>>) = transaction
+            let profile: (String, String, String, String, Option<Vec<u8>>) = transaction
                 .query_row(
-                    "SELECT display_name, role, qualifications, signature FROM clinician_profile WHERE singleton = 1",
+                    "SELECT display_name, role, qualifications, letter_header, signature FROM clinician_profile WHERE singleton = 1",
                     [],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
                 )
                 .map_err(|_| STORAGE_ERROR)?;
             let clinician = ClinicianProfile {
-                display_name: profile.0,
-                role: profile.1,
-                qualifications: profile.2,
-                has_signature: profile.3.is_some(),
+                display_name: profile.0.clone(),
+                role: profile.1.clone(),
+                qualifications: profile.2.clone(),
+                letter_header: profile.3.clone(),
+                has_signature: profile.4.is_some(),
             };
             let clinician_json = serde_json::to_string(&clinician).map_err(|_| STORAGE_ERROR)?;
             let changed = transaction
@@ -1155,7 +1266,7 @@ impl Storage {
                        WHEN ?3 AND ?4 THEN signature_snapshot
                        WHEN ?3 THEN NULL ELSE signature_snapshot END,
                      updated_at = ?7 WHERE id = ?8",
-                    params![title, body_json, reviewed, include_signature, clinician_json, profile.3, timestamp, id],
+                    params![title, body_json, reviewed, include_signature, clinician_json, profile.4, timestamp, id],
                 )
                 .map_err(|_| STORAGE_ERROR)?;
             if changed == 0 {
@@ -2520,7 +2631,7 @@ mod tests {
         );
         assert!(
             !store
-                .save_clinician_profile("", "", "", None, false, "gpt-4.1-2025-04-14",)
+                .save_clinician_profile("", "", "", "", None, false, "gpt-4.1-2025-04-14",)
                 .unwrap()
                 .clinical_sending_enabled
         );
@@ -2752,6 +2863,7 @@ mod signature_tests {
                 "Dr Synthetic",
                 "Clinician",
                 "Test",
+                "Synthetic Health Centre",
                 Some(&bytes),
                 false,
                 DEFAULT_DOCUMENT_MODEL,
@@ -2775,11 +2887,15 @@ mod signature_tests {
                 &[],
             )
             .unwrap();
+        let export = store.document_export(document.id).unwrap();
+        assert_eq!(export.clinician.letter_header, "Synthetic Health Centre");
+        assert_eq!(export.signature.as_deref(), Some(bytes.as_slice()));
         store
             .save_clinician_profile(
                 "Dr Synthetic",
                 "Clinician",
                 "Test",
+                "Replacement header",
                 None,
                 true,
                 DEFAULT_DOCUMENT_MODEL,
@@ -2813,6 +2929,7 @@ mod signature_tests {
                 "Dr Synthetic",
                 "Clinician",
                 "Test",
+                "Replacement header",
                 Some(&bytes),
                 false,
                 DEFAULT_DOCUMENT_MODEL,
@@ -2837,6 +2954,7 @@ mod signature_tests {
             assert!(store
                 .save_clinician_profile(
                     "Synthetic",
+                    "",
                     "",
                     "",
                     Some(&bytes),

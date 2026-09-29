@@ -143,6 +143,7 @@ pub fn run() {
             privacy::save_patient_document,
             privacy::update_patient_document,
             privacy::delete_patient_document,
+            privacy::export_patient_document_pdf,
             privacy::prepare_document_submission,
             privacy::submit_document_generation
         ])

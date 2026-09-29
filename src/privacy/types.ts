@@ -123,6 +123,7 @@ export interface DocumentSettings {
   displayName: string;
   role: string;
   qualifications: string;
+  letterHeader: string;
   hasSignature: boolean;
   signaturePng?: string | null;
   openaiModel: string;

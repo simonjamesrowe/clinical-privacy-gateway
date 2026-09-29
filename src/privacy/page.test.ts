@@ -59,6 +59,7 @@ const documentSettings = {
   displayName: "",
   role: "",
   qualifications: "",
+  letterHeader: "",
   hasSignature: false,
   openaiModel: models[0].id,
   clinicalSendingEnabled: false,
@@ -299,6 +300,7 @@ describe("text review", () => {
         displayName: "",
         role: "",
         qualifications: "",
+        letterHeader: "",
         hasSignature: false,
         openaiModel: "configured-model",
         clinicalSendingEnabled: false,
@@ -1702,14 +1704,23 @@ describe("document model selection and usage", () => {
     fixture({
       document_settings: () => saved,
       save_document_settings: (args: Record<string, unknown>) => {
-        saved = { ...saved, openaiModel: String(args.openaiModel) };
+        saved = {
+          ...saved,
+          letterHeader: String(args.letterHeader),
+          openaiModel: String(args.openaiModel),
+        };
         return saved;
       },
     });
     await mount(true, "patients");
     await click('[data-route="settings"]');
+    type('textarea[name="letterHeader"]', "Synthetic Health Centre");
     select('select[name="model"]', models[1].id);
     await submit("[data-document-settings]");
+    expect(call).toHaveBeenCalledWith(
+      "save_document_settings",
+      expect.objectContaining({ letterHeader: "Synthetic Health Centre" }),
+    );
     await click('[data-route="patients"]');
     await click("[data-open-patient]");
     await click("#tab-documents");
@@ -1745,6 +1756,7 @@ describe("document model selection and usage", () => {
   });
   it("shows returned costs, protects an unsaved draft, and saves without another generation", async () => {
     fixture({
+      document_settings: { ...documentSettings, hasSignature: true },
       prepare_document_submission: {
         id: "synthetic-result",
         documentId: 8,
@@ -1770,7 +1782,7 @@ describe("document model selection and usage", () => {
       },
       submit_document_generation: {
         documentId: 8,
-        text: "Synthetic restored letter.",
+        text: "## Synthetic heading\n\nA **restored** letter.",
         exactReplacements: 1,
         unknownTokens: [],
         usage: {
@@ -1782,41 +1794,57 @@ describe("document model selection and usage", () => {
         },
       },
       save_patient_document: { id: 8 },
+      export_patient_document_pdf: true,
     });
     await newDocument();
     chooseNotes();
     await click("[data-review-submission]");
     await click("[data-send-document]");
     expect(root.textContent).toContain("Latest generation: US$0.00108");
+    expect(root.querySelector(".markdown-editor h2")?.textContent).toBe(
+      "Synthetic heading",
+    );
+    expect(root.querySelector(".markdown-editor strong")?.textContent).toBe(
+      "restored",
+    );
+    await click("[data-generated-signature]");
     await click('[data-route="settings"]');
     expect(root.textContent).toContain("Discard this generated draft?");
     await click("[data-stay]");
-    const save = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "Save draft",
-    )!;
-    save.click();
-    await flush();
+    await click("[data-export-generated]");
     expect(call).toHaveBeenCalledWith(
       "save_patient_document",
       expect.objectContaining({
         id: 8,
         reviewed: false,
+        includeSignature: true,
         body: {
           blocks: [
             {
+              kind: "heading",
+              runs: [{ text: "Synthetic heading", bold: false }],
+            },
+            {
               kind: "paragraph",
-              runs: [{ text: "Synthetic restored letter.", bold: false }],
+              runs: [
+                { text: "A ", bold: false },
+                { text: "restored", bold: true },
+                { text: " letter.", bold: false },
+              ],
             },
           ],
         },
       }),
     );
+    expect(call).toHaveBeenCalledWith("export_patient_document_pdf", { id: 8 });
     expect(
       call.mock.calls.filter(
         ([command]) => command === "submit_document_generation",
       ),
     ).toHaveLength(1);
-    expect(root.textContent).toContain("Document draft saved.");
+    expect(root.textContent).toContain(
+      "Document draft saved and PDF exported.",
+    );
   });
   it("opens a saved document in the rich editor and saves a new revision", async () => {
     const savedDocument = {

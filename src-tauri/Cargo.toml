@@ -31,6 +31,7 @@ quick-xml = "0.38"
 base64 = "0.22"
 rfd = "0.17"
 png = "0.17"
+genpdf = { version = "0.2.0", features = ["images"] }
 
 [dev-dependencies]
 tempfile = "3"

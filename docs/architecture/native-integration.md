@@ -16,9 +16,12 @@ It uses the Responses API in the foreground with separate instructions and
 input, `store: false`, no tools, and no conversation state. The adapter remains
 unreachable while the governance-backed clinical-sending flag is false.
 
-Document export commands use a native save picker and consume only the saved
-reviewed revision. Word and PDF generation is local. Opaque document IDs are
-the default filenames; patient names and clinical text never appear in paths.
+Document export commands use a native save picker and consume only a saved
+document revision loaded by opaque ID. PDF generation is local; exported drafts
+carry a visible `DRAFT — NOT YET REVIEWED` marker. The configured header,
+clinician details and selected signature are added after generation and never
+enter the provider request. Opaque document IDs are the default filenames;
+patient names and clinical text never appear in paths. Word export is pending.
 
 Tauri commands are adapters into the plain Rust core. Long-running capture and
 processing report progress through bounded channels and support cancellation.

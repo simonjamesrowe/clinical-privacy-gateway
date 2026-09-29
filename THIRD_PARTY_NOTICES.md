@@ -60,6 +60,9 @@ The native document workflow also uses the following MIT-licensed components
 - quick-xml 0.38.4 — WordprocessingML extraction.
 - rfd 0.17.2 — native file selection.
 - base64 0.22.1 — in-memory PDF preview image transport.
+- genpdf 0.2.0 — local A4 patient-document PDF rendering. Apache-2.0 is
+  selected from its Apache-2.0 OR MIT terms; the Apache licence is included as
+  the repository's `LICENSE`.
 - objc2 0.6.4 and objc2-pdf-kit, objc2-foundation, objc2-app-kit 0.3.2 —
   macOS framework bindings. PDFKit itself is supplied by macOS.
 

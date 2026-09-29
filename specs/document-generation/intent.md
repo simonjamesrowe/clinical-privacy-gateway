@@ -43,6 +43,9 @@ result, edits it, and saves or exports a reviewed document.
   reviewed note cards. Show saved redaction labels in the primary note review,
   with the exact request-specific token payload available in a collapsed audit
   view before the explicit send action.
+- Present restored generated text in the same constrained rich-text editor used
+  for templates and saved documents, so headings, emphasis and lists are visible
+  before the clinician saves or exports the draft.
 - Persist document revisions, source links, submitted/returned text,
   restoration data, profile snapshots, and content-free outcomes in SQLCipher.
 - Save clinician details and signature with a reviewed revision so later
@@ -51,6 +54,9 @@ result, edits it, and saves or exports a reviewed document.
   title and constrained rich-text body, choose the reviewed state and local
   signature inclusion, then save a new revision without changing its patient,
   template or source-note bindings.
+- Configure a local multiline document header in Settings. Export a saved draft
+  or reviewed revision through the native save picker as an A4 PDF; label drafts
+  visibly, and append the selected clinician signature and profile locally.
 - Keep restored document bodies and signatures out of note search.
 
 ## Activation gate
@@ -71,9 +77,10 @@ or default model disables sending and requires a fresh confirmation.
 
 Documents use a constrained block format: headings, paragraphs, bold runs, and
 bulleted lists. It cannot represent executable HTML, scripts, remote images, or
-external resources. Word and PDF exporters consume this format locally and use
-an A4 layout. A signature block is appended locally and kept together across
-page breaks.
+external resources. The PDF exporter consumes this format locally and uses an
+A4 layout. It loads the document by opaque saved ID, uses an opaque default
+filename, and never sends the header, restored text or signature to OpenAI. A
+signature block is appended locally. Word export remains a follow-up.
 
 ## Safety invariants
 
@@ -92,10 +99,10 @@ page breaks.
 ## Current limitations
 
 External submission remains unavailable until clinical sending is explicitly
-enabled. Word/PDF export remains incomplete. Template and saved-document rich
-text plus local signature editing are available independently of the gate. The
-screens make the state explicit and the native command fails closed before
-clinical text is read.
+enabled. Word export remains incomplete. Template, generated-result and
+saved-document rich text, local signature editing, and local PDF export are
+available independently of the gate. The screens make the state explicit and
+the native command fails closed before clinical text is read.
 
 ## Success criteria
 

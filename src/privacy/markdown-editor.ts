@@ -194,7 +194,9 @@ export function markdownEditor(
   const host = h("div", { class: "markdown-editor__surface" });
   const source = h("textarea", {
     class: "markdown-source",
-    "aria-label": "Instructions Markdown",
+    "aria-label": options.document
+      ? "Document Markdown"
+      : "Instructions Markdown",
     spellcheck: false,
     value,
   });
@@ -235,7 +237,7 @@ export function markdownEditor(
     transformPastedHTML: () => "",
     attributes: {
       role: "textbox",
-      "aria-label": "Instructions",
+      "aria-label": options.document ? "Document content" : "Instructions",
       "aria-multiline": "true",
       class: "formatted-text",
     },

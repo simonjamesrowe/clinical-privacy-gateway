@@ -17,6 +17,7 @@ let settings: DocumentSettings = {
   displayName: "Dr Avery Reed",
   role: "Clinician",
   qualifications: "Synthetic demonstration",
+  letterHeader: "Harbour Clinical Service\n12 Example Street\nBristol BS1 1AA",
   apiKeyConfigured: false,
   clinicalSendingEnabled: false,
   hasSignature: false,
@@ -139,6 +140,7 @@ const bridge: PrivacyBridge = {
           displayName: String(args.displayName),
           role: String(args.role),
           qualifications: String(args.qualifications),
+          letterHeader: String(args.letterHeader),
           openaiModel: String(args.openaiModel),
           apiKeyConfigured: settings.apiKeyConfigured || Boolean(args.apiKey),
         };

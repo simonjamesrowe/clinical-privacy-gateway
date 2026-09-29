@@ -761,6 +761,7 @@ pub fn save_document_settings(
     display_name: String,
     role: String,
     qualifications: String,
+    letter_header: String,
     signature: Option<Vec<u8>>,
     remove_signature: bool,
     openai_model: String,
@@ -777,6 +778,7 @@ pub fn save_document_settings(
         &display_name,
         &role,
         &qualifications,
+        &letter_header,
         signature.as_deref(),
         remove_signature,
         &openai_model,
@@ -911,6 +913,32 @@ pub fn update_patient_document(
 #[tauri::command]
 pub fn delete_patient_document(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<()> {
     state.storage()?.delete_document(id)
+}
+
+#[tauri::command]
+pub async fn export_patient_document_pdf(
+    state: State<'_, PrivacyState>,
+    id: i64,
+) -> PrivacyResult<bool> {
+    let export = state.storage()?.document_export(id)?;
+    let chosen = rfd::AsyncFileDialog::new()
+        .set_title("Export patient document")
+        .set_file_name(format!("document-{id}.pdf"))
+        .add_filter("PDF document", &["pdf"])
+        .save_file()
+        .await;
+    let Some(chosen) = chosen else {
+        return Ok(false);
+    };
+    let path = chosen.path().to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = documents::export_pdf::render(&export)?;
+        std::fs::write(path, bytes)
+            .map_err(|_| "The PDF could not be saved. Choose another location and try again.")?;
+        Ok(true)
+    })
+    .await
+    .map_err(|_| "The PDF export could not finish. Try again.")?
 }
 
 #[tauri::command]
