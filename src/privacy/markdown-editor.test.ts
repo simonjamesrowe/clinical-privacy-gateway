@@ -10,12 +10,29 @@ describe("local Markdown editor", () => {
     );
     document.body.append(editor.element);
     expect(editor.element.querySelector("h2")?.textContent).toBe("Summary");
+    const heading = editor.element.querySelector<HTMLButtonElement>(
+      '[aria-label="Heading"]',
+    )!;
+    expect(heading.querySelector("svg")).not.toBeNull();
+    expect(heading.title).toBe("Heading");
+    expect(heading.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      editor.element.querySelector<HTMLButtonElement>('[aria-label="Undo"]')!
+        .disabled,
+    ).toBe(true);
+    const bold = editor.element.querySelector<HTMLButtonElement>(
+      '[aria-label="Bold"]',
+    )!;
+    bold.click();
+    expect(bold.getAttribute("aria-pressed")).toBe("true");
+    bold.click();
+    expect(bold.getAttribute("aria-pressed")).toBe("false");
     expect(editor.element.querySelector("strong")?.textContent).toBe(
       "Synthetic",
     );
     expect(editor.element.querySelectorAll("li")).toHaveLength(2);
     const toggle = [...editor.element.querySelectorAll("button")].find(
-      (button) => button.textContent === "Markdown source",
+      (button) => button.getAttribute("aria-label") === "Markdown source",
     )!;
     toggle.click();
     const source = editor.element.querySelector("textarea")!;

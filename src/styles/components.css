@@ -955,3 +955,49 @@ pre.pane {
 .signature-preview {
   box-sizing: border-box;
 }
+
+/* Familiar, compact WYSIWYG tools: labels remain available to assistive tech. */
+.editor-tool-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.editor-tool {
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+.editor-tool svg {
+  width: var(--text-lg);
+  height: var(--text-lg);
+}
+.editor-tool:hover:not(:disabled),
+.editor-tool[aria-pressed="true"] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+.editor-tool[aria-pressed="true"] {
+  border-color: var(--color-accent);
+}
+.editor-tool:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.editor-tool:disabled {
+  color: var(--color-ink-muted);
+  opacity: 0.45;
+  cursor: default;
+}
+.editor-tool-divider {
+  height: var(--space-6);
+  border-left: 1px solid var(--color-line-strong);
+  margin-inline: var(--space-1);
+}

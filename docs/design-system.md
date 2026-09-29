@@ -220,3 +220,8 @@ one-third metadata / two-thirds writing layout, stacking on narrow windows.
 provides local drawing, typed signatures and replacement/removal controls.
 Settings uses separate bordered sections and the standard `.field` input sizing.
 All component styling remains in `components.css` and uses design tokens.
+
+The template toolbar uses local SVG icons for paragraph, heading, bold, italic,
+bullets, undo/redo and Markdown source. Every icon has an accessible name and
+tooltip. Formatting reflects the current selection with a bordered pressed state;
+unavailable commands are disabled. Bullet formatting toggles on and off.

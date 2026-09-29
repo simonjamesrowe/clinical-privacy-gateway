@@ -1808,7 +1808,7 @@ describe("template editing and settings sections", () => {
     type("#template-description", "Synthetic prompt");
     expect(root.querySelector(".editor-layout .editor-details")).not.toBeNull();
     const toggle = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "Markdown source",
+      (button) => button.getAttribute("aria-label") === "Markdown source",
     )!;
     toggle.click();
     type(".markdown-source", "## Purpose\n\nWrite **only** supplied facts.");
