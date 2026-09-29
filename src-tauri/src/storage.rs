@@ -86,6 +86,19 @@ pub struct NoteView {
     pub created_at: i64,
 }
 
+pub struct SubmissionReviewNote {
+    pub id: i64,
+    pub title: String,
+    pub reviewed_text: String,
+    pub created_at: i64,
+}
+
+pub struct PreparedSubmissionReview {
+    pub document_id: i64,
+    pub prepared: PreparedSubmission,
+    pub notes: Vec<SubmissionReviewNote>,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentSummary {
@@ -1024,7 +1037,7 @@ impl Storage {
         model: &str,
         title: &str,
         document_id: Option<i64>,
-    ) -> PrivacyResult<PreparedSubmission> {
+    ) -> PrivacyResult<PreparedSubmissionReview> {
         let profile = self.clinician_profile()?;
         if !profile.clinical_sending_enabled {
             return Err("Clinical sending is not enabled. Complete the information-governance setup requirements first.");
@@ -1039,16 +1052,16 @@ impl Storage {
             for id in note_ids {
                 let note = connection
                     .query_row(
-                        "SELECT id, revision, reviewed_text, provenance, created_at FROM notes WHERE id = ?1 AND patient_id = ?2",
+                        "SELECT id, revision, title, reviewed_text, provenance, created_at FROM notes WHERE id = ?1 AND patient_id = ?2",
                         params![id, patient_id],
-                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, i64>(4)?)),
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?)),
                     )
                     .optional()
                     .map_err(|_| STORAGE_ERROR)?
                     .ok_or("Select only completed notes belonging to this patient.")?;
                 notes.push(note);
             }
-            notes.sort_by_key(|note| (note.4, note.0));
+            notes.sort_by_key(|note| (note.5, note.0));
             notes.dedup_by_key(|note| note.0);
             Ok(notes)
         })?;
@@ -1057,8 +1070,17 @@ impl Storage {
             .map(|note| SubmissionNote {
                 id: note.0,
                 revision: note.1,
-                reviewed_text: &note.2,
-                provenance: &note.3,
+                reviewed_text: &note.3,
+                provenance: &note.4,
+            })
+            .collect::<Vec<_>>();
+        let review_notes = owned_notes
+            .iter()
+            .map(|note| SubmissionReviewNote {
+                id: note.0,
+                title: note.2.clone(),
+                reviewed_text: note.3.clone(),
+                created_at: note.5,
             })
             .collect::<Vec<_>>();
         let mut nonce = [0_u8; 16];
@@ -1103,7 +1125,11 @@ impl Storage {
                 .map_err(|_| STORAGE_ERROR)?;
             Ok(())
         })?;
-        Ok(prepared)
+        Ok(PreparedSubmissionReview {
+            document_id,
+            prepared,
+            notes: review_notes,
+        })
     }
 
     pub fn prepared_document_id(&self, preparation_id: &str) -> PrivacyResult<i64> {

@@ -1,4 +1,4 @@
-import { markdownEditor } from "./markdown-editor";
+import { markdownEditor, renderMarkdown } from "./markdown-editor";
 import { signaturePad, emptySignatureDraft } from "./signature-pad";
 import { documentLabel, MAX_SOURCE_CHARACTERS } from "./documents";
 import type {
@@ -2708,10 +2708,87 @@ export class TextReviewPage {
               { class: "hint" },
               `Calculated on this Mac using a conservative input allowance and up to ${prepared.estimate.outputTokenAllowance.toLocaleString()} output tokens, without cache discounts. This is an estimate, not a billing quote.`,
             ),
-            h("h2", { class: "section-title" }, "Instructions sent to OpenAI"),
-            h("pre", { class: "pane" }, prepared.instructions),
-            h("h2", { class: "section-title" }, "Notes sent to OpenAI"),
-            h("pre", { class: "pane" }, prepared.input),
+            h(
+              "div",
+              { class: "submission-review-grid" },
+              h(
+                "section",
+                {
+                  class: "submission-review-panel",
+                  "aria-labelledby": "submission-instructions-title",
+                },
+                h(
+                  "header",
+                  { class: "submission-review-panel__header" },
+                  h("p", { class: "eyebrow" }, "Document prompt template"),
+                  h(
+                    "h2",
+                    { id: "submission-instructions-title" },
+                    "Instructions to OpenAI",
+                  ),
+                ),
+                this.submissionInstructions(prepared.instructions),
+              ),
+              h(
+                "section",
+                {
+                  class: "submission-review-panel",
+                  "aria-labelledby": "submission-notes-title",
+                },
+                h(
+                  "header",
+                  { class: "submission-review-panel__header" },
+                  h("p", { class: "eyebrow" }, "Reviewed source material"),
+                  h(
+                    "h2",
+                    { id: "submission-notes-title" },
+                    `${plural(prepared.reviewNotes.length, "note")} to OpenAI`,
+                  ),
+                ),
+                h(
+                  "div",
+                  { class: "submission-notes" },
+                  ...prepared.reviewNotes.map((note, index) =>
+                    h(
+                      "article",
+                      {
+                        class: "submission-note",
+                        "data-review-note": note.id,
+                      },
+                      h(
+                        "header",
+                        { class: "submission-note__header" },
+                        h("h3", {}, `${index + 1}. ${note.title}`),
+                        h(
+                          "span",
+                          { class: "mono muted" },
+                          formatDate(note.createdAt),
+                        ),
+                      ),
+                      h(
+                        "div",
+                        { class: "submission-note__text" },
+                        ...this.reviewedNoteText(note.reviewedText),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            h(
+              "details",
+              { class: "submission-payload" },
+              h("summary", {}, "View exact request payload"),
+              h(
+                "p",
+                { class: "hint" },
+                "The readable notes above use the saved redaction labels. The exact request uses one-time tokens so each redacted item can be restored to the correct place on this Mac.",
+              ),
+              h("h3", {}, "Instructions"),
+              h("pre", { class: "pane" }, prepared.instructions),
+              h("h3", {}, "Notes"),
+              h("pre", { class: "pane" }, prepared.input),
+            ),
             h(
               "button",
               {
@@ -2739,6 +2816,39 @@ export class TextReviewPage {
         generated ? "Prepare another generation" : "Change selection",
       ),
     ].filter((node): node is HTMLElement => node !== null);
+  }
+
+  private submissionInstructions(instructions: string): HTMLElement {
+    const marker = "\n\nDocument prompt template:\n";
+    const markerAt = instructions.indexOf(marker);
+    if (markerAt < 0) return renderMarkdown(instructions);
+    const rules = instructions.slice(0, markerAt);
+    const template = instructions.slice(markerAt + marker.length);
+    return h(
+      "div",
+      { class: "submission-instructions" },
+      h("h3", {}, "Generation rules"),
+      h("p", {}, rules),
+      h("h3", {}, "Template instructions"),
+      renderMarkdown(template),
+    );
+  }
+
+  private reviewedNoteText(text: string): HTMLElement[] {
+    return text
+      .split(/\n{2,}/)
+      .map((paragraph) =>
+        h(
+          "p",
+          {},
+          ...paragraph
+            .split("\n")
+            .flatMap((line, index) => [
+              ...(index ? [h("br")] : []),
+              ...withPlaceholders(line),
+            ]),
+        ),
+      );
   }
 
   private async generateDocument(): Promise<void> {

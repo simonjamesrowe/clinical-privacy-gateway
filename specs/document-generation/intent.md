@@ -35,7 +35,10 @@ result, edits it, and saves or exports a reviewed document.
   returned tokens for resolution or explicit removal before review.
 - Bind a prepared submission to exact instructions, note revisions, template
   version, model, destination, purpose, and payload digest. It is single-use.
-- Keep prompt-template instructions within the exact outgoing-payload review.
+- Present the prompt-template instructions as formatted text beside individual
+  reviewed note cards. Show saved redaction labels in the primary note review,
+  with the exact request-specific token payload available in a collapsed audit
+  view before the explicit send action.
 - Persist document revisions, source links, submitted/returned text,
   restoration data, profile snapshots, and content-free outcomes in SQLCipher.
 - Save clinician details and signature with a reviewed revision so later

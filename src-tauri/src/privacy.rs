@@ -192,6 +192,16 @@ pub struct PreparedSubmissionView {
     input: String,
     payload_digest: String,
     source_count: usize,
+    review_notes: Vec<SubmissionReviewNoteView>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmissionReviewNoteView {
+    id: i64,
+    title: String,
+    reviewed_text: String,
+    created_at: i64,
 }
 
 #[tauri::command]
@@ -899,7 +909,7 @@ pub fn prepare_document_submission(
     title: String,
     document_id: Option<i64>,
 ) -> PrivacyResult<PreparedSubmissionView> {
-    let prepared = state.storage()?.prepare_document_submission(
+    let review = state.storage()?.prepare_document_submission(
         patient_id,
         template_id,
         &note_ids,
@@ -907,8 +917,9 @@ pub fn prepare_document_submission(
         &title,
         document_id,
     )?;
+    let prepared = review.prepared;
     Ok(PreparedSubmissionView {
-        document_id: state.storage()?.prepared_document_id(&prepared.id)?,
+        document_id: review.document_id,
         estimate: estimate(
             &document_model(&prepared.model)?,
             &prepared.instructions,
@@ -922,6 +933,16 @@ pub fn prepare_document_submission(
         input: prepared.input,
         payload_digest: prepared.payload_digest,
         source_count: prepared.source_revisions.len(),
+        review_notes: review
+            .notes
+            .into_iter()
+            .map(|note| SubmissionReviewNoteView {
+                id: note.id,
+                title: note.title,
+                reviewed_text: note.reviewed_text,
+                created_at: note.created_at,
+            })
+            .collect(),
     })
 }
 

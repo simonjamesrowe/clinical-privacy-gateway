@@ -129,11 +129,18 @@ export interface PreparedDocumentSubmission {
   instructions: string;
   input: string;
   sourceCount: number;
+  reviewNotes: SubmissionReviewNote[];
   estimate: {
     inputTokenAllowance: number;
     outputTokenAllowance: number;
     costNanos: number;
   };
+}
+export interface SubmissionReviewNote {
+  id: number;
+  title: string;
+  reviewedText: string;
+  createdAt: number;
 }
 export interface GeneratedDocument {
   documentId: number;

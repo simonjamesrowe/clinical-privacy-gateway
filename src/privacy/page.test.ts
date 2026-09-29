@@ -1742,8 +1742,16 @@ describe("document model selection and usage", () => {
         destination: "https://api.openai.com",
         purpose: "Generate document",
         instructions: "Write from supplied notes",
-        input: "[CLIENT] attended.",
+        input: "⟪CV_synthetic_0001⟫ attended.",
         sourceCount: 1,
+        reviewNotes: [
+          {
+            id: 4,
+            title: "Synthetic review",
+            reviewedText: "[PERSON_1] attended.",
+            createdAt: 1_790_000_000,
+          },
+        ],
         estimate: {
           inputTokenAllowance: 100,
           outputTokenAllowance: 4096,
@@ -1819,9 +1827,18 @@ describe("document model selection and usage", () => {
         model: models[1].id,
         destination: "https://api.openai.com",
         purpose: "Generate document",
-        instructions: "Write from supplied notes",
-        input: "[CLIENT] attended.",
+        instructions:
+          "Use only supplied notes.\n\nDocument prompt template:\n## Letter\nUse **British English**.",
+        input: "⟪CV_synthetic_0001⟫ attended.",
         sourceCount: 1,
+        reviewNotes: [
+          {
+            id: 4,
+            title: "Synthetic review",
+            reviewedText: "[PERSON_1] attended.",
+            createdAt: 1_790_000_000,
+          },
+        ],
         estimate: {
           inputTokenAllowance: 100,
           outputTokenAllowance: 4096,
@@ -1840,6 +1857,19 @@ describe("document model selection and usage", () => {
       "Estimated generation allowance: US$0.032968",
     );
     expect(root.textContent).toContain("OpenAI · GPT-4.1");
+    expect(root.querySelectorAll("[data-review-note]")).toHaveLength(1);
+    expect(root.querySelector("[data-review-note]")?.textContent).toContain(
+      "[PERSON_1]",
+    );
+    expect(root.querySelector("[data-review-note]")?.textContent).not.toContain(
+      "CV_synthetic",
+    );
+    expect(
+      root.querySelector(".submission-instructions strong")?.textContent,
+    ).toBe("British English");
+    expect(
+      root.querySelector(".submission-payload pre:last-child")?.textContent,
+    ).toContain("CV_synthetic_0001");
     expect(
       call.mock.calls.some(
         ([command]) => command === "submit_document_generation",
