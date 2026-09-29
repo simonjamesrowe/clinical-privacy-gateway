@@ -1,0 +1,15 @@
+SYNTHETIC TEST DATA - fictional people, places and clinical scenarios. Not for clinical use.
+
+Synthetic end-of-episode review
+
+Patient details
+Fictional patient: Owen Thistle. Test reference: SYN-0010. Date of birth: 10/04/1980. Address: 10 Imaginary Mews, Exampleford, XX1 1XX. Email: case10@example.invalid. Telephone: 07700 900010.
+
+Visit 1 - 03 September 2026
+Owen Thistle attended the fictional Exampleford Practice for a end-of-episode review. At the start of the fictional episode, the patient described difficulty establishing a weekly routine. Agreed goals were attending a community activity and keeping a brief progress diary. The record names community worker Erin Thistle. Identifying details are included deliberately so that local detection and review can be exercised.
+
+Visit 2 - 24 September 2026
+Owen Thistle attended a second appointment with fictional clinician Dr Avery Reed. At the final visit, the patient reported attending two activities and keeping the diary for five days. Some goals remained unfinished. The record notes an agreed end to this episode, without asserting that all symptoms resolved. The documented next step is a balanced summary of progress and unresolved goals. The phrase [CLIENT] appears here as literal source text for substitution testing.
+
+Information boundaries
+This scenario supplies no real diagnosis, risk conclusion, examination result or treatment recommendation. Missing information must remain missing. The two visits are separate observations and should not be silently combined into a single event.

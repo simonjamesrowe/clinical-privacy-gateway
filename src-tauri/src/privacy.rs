@@ -986,21 +986,28 @@ fn send_openai(
             return fail("OpenAI is unavailable. Prepare and send a new submission to retry.")
         }
     };
+    let mut payload = serde_json::json!({
+        "model": prepared.model,
+        "instructions": prepared.instructions,
+        "input": prepared.input,
+        "store": false,
+        "background": false,
+        "tools": [],
+        "tool_choice": "none",
+        "truncation": "disabled",
+        "service_tier": "default",
+        "max_output_tokens": MAX_OUTPUT_TOKENS
+    });
+    if let Some(effort) = document_model(&prepared.model)
+        .ok()
+        .and_then(|model| model.reasoning_effort)
+    {
+        payload["reasoning"] = serde_json::json!({ "effort": effort });
+    }
     let response = client
         .post("https://api.openai.com/v1/responses")
         .bearer_auth(key)
-        .json(&serde_json::json!({
-            "model": prepared.model,
-            "instructions": prepared.instructions,
-            "input": prepared.input,
-            "store": false,
-            "background": false,
-            "tools": [],
-            "tool_choice": "none",
-            "truncation": "disabled",
-            "service_tier": "default",
-            "max_output_tokens": MAX_OUTPUT_TOKENS
-        }))
+        .json(&payload)
         .send();
     let mut response = match response {
         Ok(response) if response.status().is_success() => response,

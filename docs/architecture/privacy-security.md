@@ -123,3 +123,11 @@ default affects only subsequent documents. Preparation estimates use local
 bytes, never a provider token-counting endpoint. Prices and content-free usage
 receipts remain in SQLCipher. Accounting totals survive deletion after their
 link to the document is cleared; clinical material and patient metadata do not.
+
+
+Template formatting is local ProseMirror editing with Markdown storage. The
+schema excludes images and links, Markdown HTML is disabled, and clipboard HTML
+is stripped before parsing. Source instructions still appear in the exact
+outgoing payload review. Signature capture uses a local canvas; the native
+boundary decodes and validates bounded PNG pixels before encrypted persistence.
+Neither operation requires or enables AI egress.

@@ -66,3 +66,32 @@ The native document workflow also uses the following MIT-licensed components
 Their distributed licence notices or upstream licensing statements are included
 in the matching `licenses/<component>-<version>.txt` files, bundled with the
 application.
+
+## Markdown editing and signature validation
+
+- @types/linkify-it 5.0.0 — MIT (`licenses/@types-linkify-it-5.0.0.txt`).
+- @types/markdown-it 14.2.0 — MIT (`licenses/@types-markdown-it-14.2.0.txt`).
+- @types/mdurl 2.0.0 — MIT (`licenses/@types-mdurl-2.0.0.txt`).
+- linkify-it 6.1.0 — MIT (`licenses/linkify-it-6.1.0.txt`).
+- markdown-it 15.0.2 — MIT (`licenses/markdown-it-15.0.2.txt`).
+- argparse 3.0.2 — PSF-2.0 (`licenses/argparse-3.0.2.txt`).
+- mdurl 2.1.0 — MIT (`licenses/mdurl-2.1.0.txt`).
+- orderedmap 2.1.1 — MIT (`licenses/orderedmap-2.1.1.txt`).
+- prosemirror-commands 1.7.2 — MIT (`licenses/prosemirror-commands-1.7.2.txt`).
+- prosemirror-history 1.5.0 — MIT (`licenses/prosemirror-history-1.5.0.txt`).
+- prosemirror-keymap 1.2.3 — MIT (`licenses/prosemirror-keymap-1.2.3.txt`).
+- prosemirror-markdown 1.13.8 — MIT (`licenses/prosemirror-markdown-1.13.8.txt`).
+- entities 4.5.0 — BSD-2-Clause (`licenses/entities-4.5.0.txt`).
+- linkify-it 5.0.2 — MIT (`licenses/linkify-it-5.0.2.txt`).
+- markdown-it 14.3.2 — MIT (`licenses/markdown-it-14.3.2.txt`).
+- uc.micro 2.1.0 — MIT (`licenses/uc.micro-2.1.0.txt`).
+- prosemirror-model 1.25.12 — MIT (`licenses/prosemirror-model-1.25.12.txt`).
+- prosemirror-schema-list 1.5.1 — MIT (`licenses/prosemirror-schema-list-1.5.1.txt`).
+- prosemirror-state 1.4.4 — MIT (`licenses/prosemirror-state-1.4.4.txt`).
+- prosemirror-transform 1.12.2 — MIT (`licenses/prosemirror-transform-1.12.2.txt`).
+- prosemirror-view 1.42.6 — MIT (`licenses/prosemirror-view-1.42.6.txt`).
+- punycode.js 2.3.1 — MIT (`licenses/punycode.js-2.3.1.txt`).
+- rope-sequence 1.3.4 — MIT (`licenses/rope-sequence-1.3.4.txt`).
+- uc.micro 3.0.0 — MIT (`licenses/uc.micro-3.0.0.txt`).
+- w3c-keyname 2.2.8 — MIT (`licenses/w3c-keyname-2.2.8.txt`).
+- png-0.17.16 — MIT selected (`licenses/png-0.17.16.txt`).

@@ -129,6 +129,37 @@ mod tests {
         assert!(read(&dir.path().join("unsupported.doc"), &cancel).is_err());
     }
     #[test]
+    fn synthetic_testing_kit_imports_through_native_adapters() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../test-data/synthetic");
+        let cancel = AtomicBool::new(false);
+        for folder in ["word", "pdf", "notes"] {
+            let paths: Vec<_> = std::fs::read_dir(root.join(folder)).unwrap().collect();
+            assert_eq!(paths.len(), 10);
+            for path in paths {
+                let path = path.unwrap().path();
+                let original = read(&path, &cancel).unwrap();
+                let extracted = extract(&original, &cancel, |_, _| {}).unwrap();
+                for expected in ["SYNTHETIC TEST DATA", "Visit 1", "Visit 2", "[CLIENT]"] {
+                    assert!(
+                        extracted.text.contains(expected),
+                        "{}: {expected}",
+                        path.display()
+                    );
+                }
+                if path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("06")
+                {
+                    assert!(extracted.text.contains("Zoë Marlow"));
+                    assert!(extracted.text.contains("René Marlow"));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn text_encodings_are_strict_and_preserve_unicode() {
         assert_eq!(
             decode_text("🩺 synthetic".as_bytes()).unwrap(),

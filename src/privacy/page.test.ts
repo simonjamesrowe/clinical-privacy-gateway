@@ -267,9 +267,7 @@ describe("text review", () => {
       "Duplicate",
     );
     await click("[data-new-template]");
-    expect(root.querySelector(".template-form")?.textContent).toContain(
-      "New template",
-    );
+    expect(root.querySelector("h1")?.textContent).toContain("New template");
   });
 
   it("adds a Documents tab and keeps generation visibly governance-gated", async () => {
@@ -1794,5 +1792,63 @@ describe("document model selection and usage", () => {
     });
     expect(root.querySelector("[data-send-document]")).toBeNull();
     expect(root.textContent).toContain("Cost unknown");
+  });
+});
+
+describe("template editing and settings sections", () => {
+  it("saves formatted instructions as Markdown and protects unsaved changes", async () => {
+    mockLibrary({
+      list_document_templates: [],
+      create_document_template: { id: 8 },
+    });
+    await mount(true, "patients");
+    await click('[data-route="templates"]');
+    await click("[data-new-template]");
+    type("#template-name", "Synthetic summary");
+    type("#template-description", "Synthetic prompt");
+    expect(root.querySelector(".editor-layout .editor-details")).not.toBeNull();
+    const toggle = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Markdown source",
+    )!;
+    toggle.click();
+    type(".markdown-source", "## Purpose\n\nWrite **only** supplied facts.");
+    await click('[data-route="patients"]');
+    expect(root.textContent).toContain("Discard these changes?");
+    await click("[data-stay]");
+    await submit(".template-form");
+    expect(call).toHaveBeenCalledWith(
+      "create_document_template",
+      expect.objectContaining({
+        instructions: "## Purpose\n\nWrite **only** supplied facts.",
+      }),
+    );
+  });
+  it("keeps unsaved settings through usage refresh and uses full-size labelled controls", async () => {
+    mockLibrary({
+      document_settings: documentSettings,
+      document_usage: {
+        reportsCreated: 0,
+        generationAttempts: 0,
+        knownCostNanos: 0,
+        unknownCostAttempts: 0,
+        latestCostNanos: null,
+      },
+    });
+    await mount(true, "patients");
+    await click('[data-route="settings"]');
+    expect(
+      root.querySelector('input[name="apiKey"]')?.closest(".field"),
+    ).not.toBeNull();
+    expect(root.querySelectorAll(".settings-section")).toHaveLength(4);
+    type('input[name="displayName"]', "Dr Synthetic");
+    const period = root.querySelector<HTMLSelectElement>(
+      "[data-usage-period]",
+    )!;
+    period.value = "all";
+    period.dispatchEvent(new Event("change"));
+    await flush();
+    expect(
+      root.querySelector<HTMLInputElement>('input[name="displayName"]')?.value,
+    ).toBe("Dr Synthetic");
   });
 });

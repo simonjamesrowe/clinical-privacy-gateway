@@ -1,0 +1,15 @@
+SYNTHETIC TEST DATA - fictional people, places and clinical scenarios. Not for clinical use.
+
+Synthetic work participation review
+
+Patient details
+Fictional patient: Jules Hartwell. Test reference: SYN-0008. Date of birth: 08/04/1980. Address: 8 Imaginary Mews, Exampleford, XX1 1XX. Email: case08@example.invalid. Telephone: 07700 900008.
+
+Visit 1 - 03 September 2026
+Jules Hartwell attended the fictional Exampleford Practice for a work participation review. Described fatigue during a fictional office role at Cedar Lantern Studio. The manager was named Taylor Moss. The note records consent to discuss functional needs but does not record consent to disclose a diagnosis. The record names manager Taylor Moss. Identifying details are included deliberately so that local detection and review can be exercised.
+
+Visit 2 - 24 September 2026
+Jules Hartwell attended a second appointment with fictional clinician Dr Avery Reed. Reported trying shorter meetings and scheduled breaks. The patient wanted an employer-facing summary containing functional observations only. Hours of work and legal eligibility were not recorded. The documented next step is a functional summary with no unsupported certification. The phrase [CLIENT] appears here as literal source text for substitution testing.
+
+Information boundaries
+This scenario supplies no real diagnosis, risk conclusion, examination result or treatment recommendation. Missing information must remain missing. The two visits are separate observations and should not be silently combined into a single event.

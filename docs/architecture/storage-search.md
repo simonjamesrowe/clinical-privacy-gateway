@@ -114,3 +114,14 @@ Costs use integer USD nanodollars and the attempt's saved price snapshot, with
 cached input subtracted from ordinary input and reasoning already included in
 output. New price catalogues do not change past costs. Report counts use the
 first-success date, while attempts and spend use the attempt date.
+
+
+Template instructions remain Markdown strings in the existing encrypted record;
+rich editing requires no schema migration. Clinician signature replacement or
+removal updates only the current profile. Reviewed revisions retain their own
+immutable profile/signature snapshots. Settings may return the current PNG to the
+local webview for preview; signature bytes never enter debug output or search.
+
+Model price snapshots include backward-compatible defaults for long-context
+pricing and reasoning settings. Older receipts retain their original rates;
+changing the curated default does not override a saved model choice.

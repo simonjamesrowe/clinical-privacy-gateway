@@ -1,0 +1,15 @@
+SYNTHETIC TEST DATA - fictional people, places and clinical scenarios. Not for clinical use.
+
+Synthetic rehabilitation progress
+
+Patient details
+Fictional patient: Theo Fenwick. Test reference: SYN-0005. Date of birth: 05/04/1980. Address: 5 Imaginary Mews, Exampleford, XX1 1XX. Email: case05@example.invalid. Telephone: 07700 900005.
+
+Visit 1 - 03 September 2026
+Theo Fenwick attended the fictional Exampleford Practice for a rehabilitation progress. Recorded difficulty carrying shopping and managing stairs following a fictional period of reduced mobility. The baseline task time was 12 minutes with two rests; no clinical test score was recorded. The record names carer Ellis Fenwick. Identifying details are included deliberately so that local detection and review can be exercised.
+
+Visit 2 - 24 September 2026
+Theo Fenwick attended a second appointment with fictional clinician Dr Avery Reed. Recorded completion of the same task in 10 minutes with one rest. The patient described increased confidence but still requested help with heavier bags. These are reported observations, not evidence of recovery. The documented next step is review of task pacing and practical support. The phrase [CLIENT] appears here as literal source text for substitution testing.
+
+Information boundaries
+This scenario supplies no real diagnosis, risk conclusion, examination result or treatment recommendation. Missing information must remain missing. The two visits are separate observations and should not be silently combined into a single event.

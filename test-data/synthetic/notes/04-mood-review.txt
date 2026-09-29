@@ -1,0 +1,15 @@
+SYNTHETIC TEST DATA - fictional people, places and clinical scenarios. Not for clinical use.
+
+Synthetic mood and activity review
+
+Patient details
+Fictional patient: Samira Quill. Test reference: SYN-0004. Date of birth: 04/04/1980. Address: 4 Imaginary Mews, Exampleford, XX1 1XX. Email: case04@example.invalid. Telephone: 07700 900004.
+
+Visit 1 - 03 September 2026
+Samira Quill attended the fictional Exampleford Practice for a mood and activity review. Described reduced motivation and withdrawing from a weekly craft group. Appetite was described as unchanged. There is no documented formal mental-state examination or safety assessment. The record names friend Morgan Bell. Identifying details are included deliberately so that local detection and review can be exercised.
+
+Visit 2 - 24 September 2026
+Samira Quill attended a second appointment with fictional clinician Dr Avery Reed. Reported attending one group session and enjoying a short walk with a friend. Motivation varied through the week. The source asks that uncertainty is retained rather than converted into diagnostic language. The documented next step is activity diary and discussion at the next booked visit. The phrase [CLIENT] appears here as literal source text for substitution testing.
+
+Information boundaries
+This scenario supplies no real diagnosis, risk conclusion, examination result or treatment recommendation. Missing information must remain missing. The two visits are separate observations and should not be silently combined into a single event.

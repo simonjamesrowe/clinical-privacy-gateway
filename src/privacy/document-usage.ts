@@ -38,7 +38,7 @@ export function modelSelect(
       h(
         "option",
         { value: model.id, selected: model.id === selected },
-        `${model.name} — ${usd(model.inputNanos * 1_000_000)} in / ${usd(model.outputNanos * 1_000_000)} out per 1M tokens`,
+        model.name,
       ),
     ),
   );

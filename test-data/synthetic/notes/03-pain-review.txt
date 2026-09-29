@@ -1,0 +1,15 @@
+SYNTHETIC TEST DATA - fictional people, places and clinical scenarios. Not for clinical use.
+
+Synthetic persistent pain review
+
+Patient details
+Fictional patient: Daniel Wren. Test reference: SYN-0003. Date of birth: 03/04/1980. Address: 3 Imaginary Mews, Exampleford, XX1 1XX. Email: case03@example.invalid. Telephone: 07700 900003.
+
+Visit 1 - 03 September 2026
+Daniel Wren attended the fictional Exampleford Practice for a persistent pain review. Reported intermittent lower-back discomfort after prolonged sitting. Walking remained possible, with rests. The note does not include examination findings, imaging or a treatment recommendation. The record names support worker Rowan Ellis. Identifying details are included deliberately so that local detection and review can be exercised.
+
+Visit 2 - 24 September 2026
+Daniel Wren attended a second appointment with fictional clinician Dr Avery Reed. Reported that shorter sitting periods helped during the week. Symptoms continued after a long car journey. A medicines list was not provided and must not be inferred. The documented next step is functional goals and a planned review with the referring team. The phrase [CLIENT] appears here as literal source text for substitution testing.
+
+Information boundaries
+This scenario supplies no real diagnosis, risk conclusion, examination result or treatment recommendation. Missing information must remain missing. The two visits are separate observations and should not be silently combined into a single event.

@@ -18,6 +18,12 @@ result, edits it, and saves or exports a reviewed document.
 ## Required behaviour
 
 - Seed editable GP letter, referral letter, and progress report templates.
+- Edit template metadata on the left and Markdown instructions in a large rich
+  text editor on the right; support headings, bold, italic and lists with a
+  source view. Rendering never instantiates HTML, links or remote images.
+- Divide Settings into connection, generation, clinician, signature and usage
+  sections. Draw or type a signature, undo strokes, replace or remove it; save
+  changes explicitly and preserve signatures already saved with documents.
 - Restrict source selection to completed notes belonging to the document's
   patient and preserve their order.
 - Build submissions from saved reviewed text and its review snapshot in the
@@ -69,8 +75,9 @@ page breaks.
 
 ## Current limitations
 
-External submission, rich document editing, signature drawing, and Word/PDF
-export remain unavailable while clinical sending is blocked. The screens make
+External submission, rich generated-document editing, and Word/PDF export
+remain unavailable while clinical sending is blocked. Template rich text and
+local signature editing are available independently of this gate. The screens make
 that state explicit and the native command fails closed before clinical text is
 read.
 
@@ -90,19 +97,26 @@ read.
 - Settings stores a supported default model. New documents copy that selection;
   per-document changes never update the Settings default. Unsupported legacy
   selections stay visible and require an explicit replacement, never a fallback.
-- The initial curated options are pinned GPT-4.1 mini and GPT-4.1 snapshots.
-  Mini is the lower-cost starting selection, not a claim of clinical validation.
+- The curated options include GPT-6 Luna, Sol and Astra, GPT-5.6 Luna, pinned
+  GPT-5.4 mini and the existing pinned GPT-4.1 mini / GPT-4.1 snapshots.
+  GPT-6 Luna is the lowest-cost initial selection; existing defaults are retained.
+  This is not a claim of clinical validation.
   Provider access and organisational approval must cover each selected model.
 - Before sending, show a local estimate for the exact prepared instructions and
   notes. Use UTF-8 byte length plus a message-framing allowance and 4,096 output
-  tokens, at uncached Standard rates. Label it an estimate, not a billing quote.
+  tokens, at uncached Standard rates. Include a cache-write allowance for GPT-6
+  and GPT-5.6, and apply their long-context multipliers above 272,000 input
+  tokens (2× input, 1.5× output). Label it an estimate, not a billing quote.
   No token-counting request or clinical-content egress happens for estimation.
 - Record each consumed preparation as one generation attempt before the network
   request; duplicate submission cannot duplicate accounting. Capture the price
   snapshot at that point and calculate cost from returned input, cached-input,
   and output usage. Output usage already includes any reasoning tokens.
+- Request no reasoning for GPT-6 Luna/Sol, GPT-5.6 Luna and GPT-5.4 mini; use
+  the supported minimum (low) for GPT-6 Astra. The output cap includes reasoning.
 - Missing, invalid or unfamiliar usage/pricing is **Cost unknown**, including
-  timeouts. Billable failures and discarded results still contribute to spend.
+  timeouts and nonzero cache-write token usage that cannot yet be priced from
+  the receipt. Billable failures and discarded results still contribute to spend.
   Historical prices and costs do not change when the model catalogue changes.
 - A report counts once on its first successful generation; generating it again
   adds an attempt and cost but not another report. Empty/manual drafts, edits,
@@ -115,10 +129,21 @@ read.
 - Content-free accounting survives document/patient deletion with the document
   link cleared. It never retains names, titles, source text, prompts or output.
 
-Pricing sources, checked 28 September 2026:
-[GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini),
-[GPT-4.1](https://developers.openai.com/api/docs/models/gpt-4.1), and
-[Responses usage](https://developers.openai.com/api/reference/cli/resources/responses/methods/retrieve).
-Standard USD rates per million tokens are respectively 0.40/0.10/1.60 and
-2.00/0.50/8.00 for uncached input/cached input/output. Rates are bundled; updating
-prices requires a catalogue update and does not recalculate prior receipts.
+Pricing sources, checked 29 September 2026:
+
+| Model | Input / cached input / output, USD per million |
+| --- | --- |
+| [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna) | 0.10 / 0.01 / 0.50 |
+| [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) | 2.00 / 0.20 / 10.00 |
+| [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) | 10.00 / 1.00 / 50.00 |
+| [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna) | 0.20 / 0.02 / 1.20 |
+| [GPT-5.4 mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini) | 0.75 / 0.075 / 4.50 |
+| [GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini) | 0.40 / 0.10 / 1.60 |
+| [GPT-4.1](https://developers.openai.com/api/docs/models/gpt-4.1) | 2.00 / 0.50 / 8.00 |
+
+Standard rates are bundled; updating prices does not recalculate prior receipts.
+GPT-6 and GPT-5.6 aliases can evolve upstream; the chosen ID and local price
+snapshot remain attached to each preparation and attempt. Access depends on the
+configured OpenAI project; the selector does not claim account availability.
+
+Local testing examples: [synthetic kit](../../test-data/synthetic/README.md).

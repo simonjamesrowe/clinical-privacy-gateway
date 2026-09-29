@@ -1,0 +1,15 @@
+SYNTHETIC TEST DATA - fictional people, places and clinical scenarios. Not for clinical use.
+
+Synthetic anxiety follow-up
+
+Patient details
+Fictional patient: Priya Vale. Test reference: SYN-0002. Date of birth: 02/04/1980. Address: 2 Imaginary Mews, Exampleford, XX1 1XX. Email: case02@example.invalid. Telephone: 07700 900002.
+
+Visit 1 - 03 September 2026
+Priya Vale attended the fictional Exampleford Practice for a anxiety follow-up. Described increased worry before travelling to work and difficulty concentrating during meetings. The source records practising a breathing exercise; it does not record a diagnosis or a risk assessment. The record names sibling Nila Vale. Identifying details are included deliberately so that local detection and review can be exercised.
+
+Visit 2 - 24 September 2026
+Priya Vale attended a second appointment with fictional clinician Dr Avery Reed. Reported using the exercise on three occasions and completing two journeys independently. Worry remained present before a busy meeting. No new physical symptoms were documented. The documented next step is review of agreed coping strategies in three weeks. The phrase [CLIENT] appears here as literal source text for substitution testing.
+
+Information boundaries
+This scenario supplies no real diagnosis, risk conclusion, examination result or treatment recommendation. Missing information must remain missing. The two visits are separate observations and should not be silently combined into a single event.

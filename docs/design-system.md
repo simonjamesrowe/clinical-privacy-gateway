@@ -209,3 +209,14 @@ sub-cent precision. Partial totals explicitly add **unknown costs**, and never
 render missing usage as a zero-cost request. The patient Documents table adds
 **Latest cost** and **Total cost** columns. The existing design-system screens
 include synthetic examples of the selectors and usage table.
+
+
+### Template and settings configuration
+
+The [configuration specimen](../design-system/configuration.html) runs the actual
+screen components with memory-only synthetic fixtures. Template editing uses a
+one-third metadata / two-thirds writing layout, stacking on narrow windows.
+`markdown-editor.ts` provides restricted rich Markdown editing; `signature-pad.ts`
+provides local drawing, typed signatures and replacement/removal controls.
+Settings uses separate bordered sections and the standard `.field` input sizing.
+All component styling remains in `components.css` and uses design tokens.

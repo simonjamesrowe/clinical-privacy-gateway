@@ -251,7 +251,7 @@ mod tests {
         let totals = store.document_usage(None, None, Some(doc.id)).unwrap();
         assert_eq!(totals.reports_created, 1);
         assert_eq!(totals.generation_attempts, 3);
-        assert_eq!(totals.known_cost_nanos, 6_480_000);
+        assert_eq!(totals.known_cost_nanos, 5_714_000);
         assert_eq!(totals.unknown_cost_attempts, 1);
         assert_eq!(totals.latest_cost_nanos, None);
         store.delete_document(doc.id).unwrap();
@@ -260,7 +260,7 @@ mod tests {
         let reopened = Storage::open_for_test(path, [42; 32]).unwrap();
         let totals = reopened.document_usage(None, None, None).unwrap();
         assert_eq!(totals.reports_created, 1);
-        assert_eq!(totals.known_cost_nanos, 6_480_000);
+        assert_eq!(totals.known_cost_nanos, 5_714_000);
         assert_eq!(totals.generation_attempts, 3);
         reopened
             .with_connection(|connection| {

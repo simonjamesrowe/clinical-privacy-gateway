@@ -98,6 +98,7 @@ export interface DocumentSettings {
   role: string;
   qualifications: string;
   hasSignature: boolean;
+  signaturePng?: string | null;
   openaiModel: string;
   clinicalSendingEnabled: boolean;
   apiKeyConfigured: boolean;

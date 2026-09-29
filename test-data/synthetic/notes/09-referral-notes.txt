@@ -1,0 +1,15 @@
+SYNTHETIC TEST DATA - fictional people, places and clinical scenarios. Not for clinical use.
+
+Synthetic referral preparation
+
+Patient details
+Fictional patient: Leila Brook. Test reference: SYN-0009. Date of birth: 09/04/1980. Address: 9 Imaginary Mews, Exampleford, XX1 1XX. Email: case09@example.invalid. Telephone: 07700 900009.
+
+Visit 1 - 03 September 2026
+Leila Brook attended the fictional Exampleford Practice for a referral preparation. Requested a specialist opinion about a persistent concern documented only as difficulty with daily activities. Symptom onset, examination findings and referral urgency were not recorded. The record names GP Dr Avery Reed. Identifying details are included deliberately so that local detection and review can be exercised.
+
+Visit 2 - 24 September 2026
+Leila Brook attended a second appointment with fictional clinician Dr Avery Reed. Reported that the concern remained and asked how referral information would be shared. The note lists prior strategies as a diary and a routine review. There is no documented specialist diagnosis. The documented next step is a referral request clearly identifying missing information. The phrase [CLIENT] appears here as literal source text for substitution testing.
+
+Information boundaries
+This scenario supplies no real diagnosis, risk conclusion, examination result or treatment recommendation. Missing information must remain missing. The two visits are separate observations and should not be silently combined into a single event.

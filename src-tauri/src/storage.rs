@@ -106,6 +106,7 @@ pub struct ClinicianProfileView {
     pub role: String,
     pub qualifications: String,
     pub has_signature: bool,
+    pub signature_png: Option<String>,
     pub openai_model: String,
     pub clinical_sending_enabled: bool,
 }
@@ -764,7 +765,7 @@ impl Storage {
         self.with_connection(|connection| {
             connection
                 .query_row(
-                    "SELECT display_name, role, qualifications, signature IS NOT NULL,
+                    "SELECT display_name, role, qualifications, signature,
                             openai_model, clinical_sending_enabled
                      FROM clinician_profile WHERE singleton = 1",
                     [],
@@ -773,7 +774,11 @@ impl Storage {
                             display_name: row.get(0)?,
                             role: row.get(1)?,
                             qualifications: row.get(2)?,
-                            has_signature: row.get(3)?,
+                            has_signature: row.get::<_, Option<Vec<u8>>>(3)?.is_some(),
+                            signature_png: row.get::<_, Option<Vec<u8>>>(3)?.map(|bytes| {
+                                use base64::Engine;
+                                base64::engine::general_purpose::STANDARD.encode(bytes)
+                            }),
                             openai_model: row.get(4)?,
                             clinical_sending_enabled: row.get(5)?,
                         })
@@ -809,8 +814,11 @@ impl Storage {
             "Use at most 120 characters for the model.",
         )?;
         document_model(&openai_model)?;
-        if signature.is_some_and(|bytes| bytes.len() > 2 * 1024 * 1024) {
-            return Err("The signature drawing is too large to save.");
+        if remove_signature && signature.is_some() {
+            return Err("Choose whether to replace or remove the signature.");
+        }
+        if let Some(bytes) = signature {
+            validate_signature(bytes)?;
         }
         self.with_connection(|connection| {
             connection
@@ -1627,6 +1635,30 @@ fn template_fields(
         )?,
     ))
 }
+fn validate_signature(bytes: &[u8]) -> PrivacyResult<()> {
+    const ERROR: &str = "Use a PNG signature no larger than 1200 by 400 pixels and 2 MiB.";
+    if bytes.len() > 2 * 1024 * 1024 {
+        return Err(ERROR);
+    }
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_limits(png::Limits {
+        bytes: 2 * 1024 * 1024,
+    });
+    let mut reader = decoder.read_info().map_err(|_| ERROR)?;
+    let info = reader.info();
+    if info.width == 0
+        || info.height == 0
+        || info.width > 1200
+        || info.height > 400
+        || info.animation_control.is_some()
+    {
+        return Err(ERROR);
+    }
+    let mut image = vec![0; reader.output_buffer_size()];
+    reader.next_frame(&mut image).map_err(|_| ERROR)?;
+    Ok(())
+}
+
 fn normalise_limited(value: &str, limit: usize, long: &'static str) -> PrivacyResult<String> {
     let value = value.trim();
     if value.chars().count() > limit {
@@ -2275,5 +2307,121 @@ mod document_tests {
         let store = Storage::open_for_test(path, [6; 32]).unwrap();
         assert!(store.note(note.id).unwrap().document.is_none());
         assert_eq!(store.search_notes("retained", None).unwrap().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod signature_tests {
+    use super::*;
+    fn signature() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut bytes, 8, 4);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder
+                .write_header()
+                .unwrap()
+                .write_image_data(&[127; 128])
+                .unwrap();
+        }
+        bytes
+    }
+    #[test]
+    fn signature_round_trips_and_replacement_does_not_rewrite_reviewed_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("signatures.sqlite");
+        let store = Storage::open_for_test(path.clone(), [74; 32]).unwrap();
+        let bytes = signature();
+        let profile = store
+            .save_clinician_profile(
+                "Dr Synthetic",
+                "Clinician",
+                "Test",
+                Some(&bytes),
+                false,
+                DEFAULT_DOCUMENT_MODEL,
+            )
+            .unwrap();
+        assert!(profile.has_signature);
+        assert!(profile.signature_png.is_some());
+        let patient = store
+            .create_patient("Synthetic Signature Case", None)
+            .unwrap();
+        let template = store.templates(false).unwrap().remove(0);
+        let document = store
+            .save_document(
+                None,
+                patient.id,
+                "Synthetic letter",
+                template.id,
+                &DocumentBody::from_plain_text("Synthetic body"),
+                true,
+                true,
+                &[],
+            )
+            .unwrap();
+        store
+            .save_clinician_profile(
+                "Dr Synthetic",
+                "Clinician",
+                "Test",
+                None,
+                true,
+                DEFAULT_DOCUMENT_MODEL,
+            )
+            .unwrap();
+        assert!(!store.clinician_profile().unwrap().has_signature);
+        store
+            .with_connection(|connection| {
+                let saved: Vec<u8> = connection
+                    .query_row(
+                        "SELECT signature_snapshot FROM patient_documents WHERE id = ?1",
+                        [document.id],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(saved, bytes);
+                Ok(())
+            })
+            .unwrap();
+        store
+            .save_clinician_profile(
+                "Dr Synthetic",
+                "Clinician",
+                "Test",
+                Some(&bytes),
+                false,
+                DEFAULT_DOCUMENT_MODEL,
+            )
+            .unwrap();
+        drop(store);
+        let reopened = Storage::open_for_test(path, [74; 32]).unwrap();
+        assert_eq!(
+            reopened.clinician_profile().unwrap().signature_png,
+            profile.signature_png
+        );
+    }
+    #[test]
+    fn malformed_or_oversized_signatures_cannot_replace_saved_drawing() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage::open_for_test(dir.path().join("signatures.sqlite"), [75; 32]).unwrap();
+        for bytes in [
+            b"<svg>synthetic</svg>".to_vec(),
+            vec![0; 2 * 1024 * 1024 + 1],
+            signature()[..20].to_vec(),
+        ] {
+            assert!(store
+                .save_clinician_profile(
+                    "Synthetic",
+                    "",
+                    "",
+                    Some(&bytes),
+                    false,
+                    DEFAULT_DOCUMENT_MODEL
+                )
+                .is_err());
+        }
+        assert!(!store.clinician_profile().unwrap().has_signature);
     }
 }
