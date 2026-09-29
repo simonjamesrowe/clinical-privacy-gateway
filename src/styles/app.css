@@ -36,10 +36,15 @@ button {
   cursor: pointer;
 }
 
-.welcome-actions {
+.welcome-actions,
+.welcome-links {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
+}
+
+.welcome-links {
+  margin-top: var(--space-3);
 }
 
 .welcome-start--secondary {

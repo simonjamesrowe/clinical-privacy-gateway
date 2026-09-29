@@ -1,6 +1,6 @@
 // Production screens with memory-only, synthetic fixtures. No network or real keys.
 import "../src/styles/app.css";
-import { TextReviewPage } from "../src/privacy/page";
+import { TextReviewPage, type WorkspaceScreen } from "../src/privacy/page";
 import type {
   DocumentSettings,
   DocumentTemplate,
@@ -64,8 +64,62 @@ const bridge: PrivacyBridge = {
         result = settings;
         break;
       case "list_patients":
+        result = [
+          {
+            id: 7,
+            name: "Synthetic Client",
+            patientReference: "SYN-2048",
+            noteCount: 3,
+            documentCount: 2,
+            redactionCount: 4,
+          },
+        ];
+        break;
       case "search_notes":
         result = [];
+        break;
+      case "list_documents":
+      case "list_patient_documents":
+        result = [
+          {
+            id: 12,
+            patientId: 7,
+            patientName: "Synthetic Client",
+            patientReference: "SYN-2048",
+            title: "Synthetic GP update",
+            templateName: "GP letter",
+            revision: 2,
+            reviewed: true,
+            createdAt: 1_790_000_000,
+            updatedAt: 1_790_086_400,
+            usage: {
+              reportsCreated: 1,
+              generationAttempts: 2,
+              knownCostNanos: 1_840_000,
+              unknownCostAttempts: 0,
+              latestCostNanos: 920_000,
+            },
+          },
+          {
+            id: 13,
+            patientId: 7,
+            patientName: "Synthetic Client",
+            patientReference: "SYN-2048",
+            title: "Synthetic referral draft",
+            templateName: "Specialist referral",
+            revision: 1,
+            reviewed: false,
+            createdAt: 1_790_172_800,
+            updatedAt: 1_790_172_800,
+            usage: {
+              reportsCreated: 1,
+              generationAttempts: 1,
+              knownCostNanos: 410_000,
+              unknownCostAttempts: 0,
+              latestCostNanos: 410_000,
+            },
+          },
+        ];
         break;
       case "list_document_templates":
         result = templates;
@@ -104,6 +158,13 @@ const bridge: PrivacyBridge = {
       case "test_openai_connection":
         result = true;
         break;
+      case "set_clinical_sending_enabled":
+        settings = {
+          ...settings,
+          clinicalSendingEnabled: Boolean(args.enabled),
+        };
+        result = settings;
+        break;
       case "create_document_template":
       case "update_document_template": {
         const item = {
@@ -124,15 +185,16 @@ const bridge: PrivacyBridge = {
     return result as T;
   },
 };
+const requested: WorkspaceScreen =
+  location.hash === "#settings"
+    ? "settings"
+    : location.hash === "#documents"
+      ? "documents"
+      : "templates";
 const page = new TextReviewPage(
   document.querySelector("#app")!,
   bridge,
   () => {},
-  "patients",
+  requested,
 );
 await page.mount();
-document
-  .querySelector<HTMLAnchorElement>(
-    `[data-route="${location.hash === "#settings" ? "settings" : "templates"}"]`,
-  )
-  ?.click();

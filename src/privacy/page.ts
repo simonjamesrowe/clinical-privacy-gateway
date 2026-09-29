@@ -61,12 +61,22 @@ type Work =
   | "review"
   | "copy";
 type Tab = "details" | "notes" | "documents" | "redactions";
-type Section = "patients" | "notes" | "redactions" | "templates" | "settings";
+export type WorkspaceScreen =
+  | "patients"
+  | "notes"
+  | "documents"
+  | "document-patient"
+  | "redactions"
+  | "templates"
+  | "settings";
+type Section = Exclude<WorkspaceScreen, "document-patient">;
 type Route =
   | { name: "patients" }
   | { name: "patient-new" }
   | { name: "patient"; patientId: number; tab: Tab }
   | { name: "document-new"; patientId: number }
+  | { name: "document-patient" }
+  | { name: "documents" }
   | { name: "review" }
   | { name: "notes" }
   | { name: "redactions" }
@@ -168,6 +178,7 @@ export class TextReviewPage {
   private mappings: MappingView[] = [];
   private patientMappings: MappingView[] = [];
   private documents: DocumentSummary[] = [];
+  private documentQuery = "";
   private templates: DocumentTemplate[] = [];
   private documentSettings: DocumentSettings | null = null;
   private usage: UsageSummary | null = null;
@@ -201,7 +212,7 @@ export class TextReviewPage {
     private root: HTMLElement,
     private bridge: PrivacyBridge,
     private onHome: () => void,
-    initialScreen: "patients" | "notes" | "review" = "review",
+    initialScreen: WorkspaceScreen | "review" = "review",
   ) {
     this.route = { name: initialScreen };
     root.addEventListener("keydown", this.keydown);
@@ -322,6 +333,10 @@ export class TextReviewPage {
           : this.patientsScreen();
       case "notes":
         return this.notesScreen();
+      case "documents":
+        return this.documentsScreen();
+      case "document-patient":
+        return this.documentPatientScreen();
       case "redactions":
         return this.redactionsScreen();
       case "templates":
@@ -335,11 +350,14 @@ export class TextReviewPage {
   private section(): Section {
     const name = this.route.name;
     return name === "notes" ||
+      name === "documents" ||
       name === "redactions" ||
       name === "templates" ||
       name === "settings"
       ? name
-      : "patients";
+      : name === "document-patient" || name === "document-new"
+        ? "documents"
+        : "patients";
   }
   private header(): HTMLElement {
     const current = this.section();
@@ -379,6 +397,7 @@ export class TextReviewPage {
           { class: "primary-nav", "aria-label": "Application" },
           link("patients", "Patients"),
           link("notes", "Notes"),
+          link("documents", "Documents"),
           link("redactions", "Redactions"),
           link("templates", "Document prompt templates"),
           link("settings", "Settings"),
@@ -556,6 +575,7 @@ export class TextReviewPage {
     if (!options.keepQuery) {
       this.patientQuery = "";
       this.noteQuery = "";
+      this.documentQuery = "";
       this.redactionQuery = "";
       this.templateQuery = "";
     }
@@ -672,6 +692,20 @@ export class TextReviewPage {
         this.documentSettings = result.settings;
         this.documentDraft.templateId = result.templates[0]?.id ?? 0;
         this.documentDraft.model = result.settings.openaiModel;
+        return;
+      }
+      case "document-patient": {
+        const result = await this.perform("Loading patients…", () =>
+          call<PatientView[]>("list_patients"),
+        );
+        if (result) this.patients = result;
+        return;
+      }
+      case "documents": {
+        const result = await this.perform("Loading documents…", () =>
+          call<DocumentSummary[]>("list_documents"),
+        );
+        if (result) this.documents = result;
         return;
       }
       case "notes": {
@@ -1207,6 +1241,20 @@ export class TextReviewPage {
           ],
           id: "patient-title",
           actions: [
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button",
+                "data-new-document": true,
+                onclick: () =>
+                  void this.navigate({
+                    name: "document-new",
+                    patientId: patient.id,
+                  }),
+              },
+              "New document",
+            ),
             h(
               "button",
               {
@@ -1913,6 +1961,294 @@ export class TextReviewPage {
                 ),
           ]
         : [documentContent(preview.extracted.blocks)]),
+    ];
+  }
+
+  // Documents ---------------------------------------------------------------
+
+  private newDocumentAction(primary = true): HTMLElement {
+    return h(
+      "button",
+      {
+        type: "button",
+        class: primary ? "button button--primary" : "button",
+        "data-new-document": true,
+        onclick: () => void this.navigate({ name: "document-patient" }),
+      },
+      "New document",
+    );
+  }
+
+  private documentsScreen(): Node[] {
+    const query = this.documentQuery.toLowerCase();
+    const rows = this.documents.filter((document) =>
+      `${document.title} ${document.templateName} ${document.patientName ?? ""} ${document.patientReference ?? ""}`
+        .toLowerCase()
+        .includes(query),
+    );
+    const list = !this.documents.length
+      ? emptyState(
+          "No documents yet",
+          "Create a patient document from completed reviewed notes.",
+          this.newDocumentAction(false),
+        )
+      : h(
+          "div",
+          {},
+          toolbar(
+            searchForm({
+              label: "Search documents",
+              placeholder: "Search by title, patient or template",
+              value: this.documentQuery,
+              onSearch: (value) => {
+                this.documentQuery = value;
+                this.focusTarget = "#search";
+                this.render();
+              },
+            }),
+            searchStatus({
+              shown: rows.length,
+              total: this.documents.length,
+              noun: "document",
+              query: this.documentQuery,
+              onClear: () => {
+                this.documentQuery = "";
+                this.focusTarget = "#search";
+                this.render();
+              },
+            }),
+          ),
+          dataTable(
+            [
+              { label: "Patient" },
+              { label: "Title" },
+              { label: "Template" },
+              { label: "Updated" },
+              { label: "Status" },
+              { label: "Latest cost" },
+              { label: "Total cost" },
+            ],
+            rows.length
+              ? rows.map((document) => {
+                  const open = () =>
+                    void this.navigate({
+                      name: "patient",
+                      patientId: document.patientId,
+                      tab: "documents",
+                    });
+                  return h(
+                    "tr",
+                    { class: "row-link", onclick: rowOpener(open) },
+                    h(
+                      "td",
+                      {},
+                      document.patientName ?? "Patient unavailable",
+                      document.patientReference &&
+                        h(
+                          "span",
+                          { class: "mono muted" },
+                          ` ${document.patientReference}`,
+                        ),
+                    ),
+                    h(
+                      "td",
+                      {},
+                      h(
+                        "button",
+                        {
+                          type: "button",
+                          class: "row-open",
+                          "data-open-document-patient": document.patientId,
+                          onclick: open,
+                        },
+                        document.title,
+                      ),
+                    ),
+                    h("td", {}, document.templateName),
+                    h("td", { class: "mono" }, formatDate(document.updatedAt)),
+                    h(
+                      "td",
+                      {},
+                      h(
+                        "span",
+                        {
+                          class: document.reviewed
+                            ? "badge"
+                            : "badge badge--muted",
+                        },
+                        document.reviewed ? "Reviewed" : "Draft",
+                      ),
+                    ),
+                    h(
+                      "td",
+                      { class: "mono" },
+                      !document.usage?.generationAttempts
+                        ? "—"
+                        : document.usage.latestCostNanos === null
+                          ? "Cost unknown"
+                          : usd(document.usage.latestCostNanos),
+                    ),
+                    h(
+                      "td",
+                      { class: "mono" },
+                      !document.usage?.generationAttempts
+                        ? "—"
+                        : `${usd(document.usage.knownCostNanos)}${document.usage.unknownCostAttempts ? " + unknown" : ""}`,
+                    ),
+                  );
+                })
+              : [
+                  h(
+                    "tr",
+                    {},
+                    h(
+                      "td",
+                      { colspan: 7, class: "muted" },
+                      `No documents match “${this.documentQuery}”.`,
+                    ),
+                  ),
+                ],
+          ),
+        );
+    return [
+      pageHeader({
+        eyebrow: "Encrypted library",
+        title: ["Documents"],
+        id: "documents-title",
+        description:
+          "Draft and reviewed patient documents, with generation costs kept alongside each report.",
+        actions: [this.newDocumentAction()],
+      }),
+      this.errorNotice(),
+      this.flashNotice(),
+      h("section", { "data-document-results": true }, list),
+    ].filter((node): node is HTMLElement => node !== null);
+  }
+
+  private documentPatientScreen(): Node[] {
+    const query = this.patientQuery.toLowerCase();
+    const patients = this.patients.filter((patient) =>
+      `${patient.name} ${patient.patientReference ?? ""}`
+        .toLowerCase()
+        .includes(query),
+    );
+    const select = (patient: PatientView) =>
+      void this.navigate({ name: "document-new", patientId: patient.id });
+    return [
+      breadcrumb([
+        {
+          label: "Documents",
+          onSelect: () => void this.navigate({ name: "documents" }),
+        },
+        { label: "New document" },
+      ]),
+      pageHeader({
+        eyebrow: "Patient document",
+        title: ["New document"],
+        id: "document-patient-title",
+        description: "Choose the patient whose reviewed notes you want to use.",
+      }),
+      this.errorNotice(),
+      !this.patients.length
+        ? emptyState(
+            "No patients yet",
+            "Add a patient and complete a reviewed note before creating a document.",
+          )
+        : h(
+            "section",
+            { "data-document-patients": true },
+            toolbar(
+              searchForm({
+                label: "Search patients",
+                placeholder: "Search by name or patient number",
+                value: this.patientQuery,
+                onSearch: (value) => {
+                  this.patientQuery = value;
+                  this.focusTarget = "#search";
+                  this.render();
+                },
+              }),
+              searchStatus({
+                shown: patients.length,
+                total: this.patients.length,
+                noun: "patient",
+                query: this.patientQuery,
+                onClear: () => {
+                  this.patientQuery = "";
+                  this.focusTarget = "#search";
+                  this.render();
+                },
+              }),
+            ),
+            dataTable(
+              [
+                { label: "Patient" },
+                { label: "Patient number" },
+                { label: "Reviewed notes", narrow: true },
+                { label: "Documents", narrow: true },
+                { label: "Actions", hidden: true },
+              ],
+              patients.length
+                ? patients.map((patient) =>
+                    h(
+                      "tr",
+                      {
+                        class: "row-link",
+                        onclick: rowOpener(() => select(patient)),
+                      },
+                      h(
+                        "td",
+                        {},
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            class: "row-open",
+                            "data-choose-document-patient": patient.id,
+                            onclick: () => select(patient),
+                          },
+                          patient.name,
+                        ),
+                      ),
+                      h(
+                        "td",
+                        { class: "mono" },
+                        patient.patientReference ?? "—",
+                      ),
+                      h("td", { class: "hide-narrow" }, patient.noteCount ?? 0),
+                      h(
+                        "td",
+                        { class: "hide-narrow" },
+                        patient.documentCount ?? 0,
+                      ),
+                      h(
+                        "td",
+                        { class: "actions" },
+                        h(
+                          "button",
+                          {
+                            type: "button",
+                            class: "button button--compact",
+                            onclick: () => select(patient),
+                          },
+                          "Choose",
+                        ),
+                      ),
+                    ),
+                  )
+                : [
+                    h(
+                      "tr",
+                      {},
+                      h(
+                        "td",
+                        { colspan: 5, class: "muted" },
+                        `No patients match “${this.patientQuery}”.`,
+                      ),
+                    ),
+                  ],
+            ),
+          ),
     ];
   }
 
@@ -3164,6 +3500,7 @@ export class TextReviewPage {
               placeholder: settings?.apiKeyConfigured
                 ? "Enter a replacement key"
                 : "Enter API key",
+              oninput: () => this.updateGovernanceButton(),
             }),
             h(
               "span",
@@ -3212,6 +3549,118 @@ export class TextReviewPage {
         "section",
         {
           class: "panel settings-section",
+          "aria-labelledby": "clinical-sending-title",
+        },
+        h(
+          "div",
+          { class: "settings-section__intro" },
+          h(
+            "h2",
+            { class: "section-title", id: "clinical-sending-title" },
+            "Clinical sending",
+          ),
+          h(
+            "p",
+            { class: "muted" },
+            "Record the governance checks required before a reviewed payload can leave this Mac.",
+          ),
+        ),
+        settings?.clinicalSendingEnabled
+          ? h(
+              "div",
+              { class: "form-stack" },
+              h(
+                "p",
+                { class: "notice" },
+                h("strong", {}, "Enabled for the recorded configuration. "),
+                "Every document still requires submission review and a fresh send action.",
+              ),
+              h(
+                "div",
+                { class: "page-actions" },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "button button--danger-quiet",
+                    "data-disable-clinical-sending": true,
+                    onclick: () => void this.setClinicalSendingEnabled(false),
+                  },
+                  "Disable clinical sending",
+                ),
+              ),
+            )
+          : h(
+              "div",
+              { class: "form-stack" },
+              h(
+                "p",
+                { class: "hint" },
+                settings?.apiKeyConfigured
+                  ? "Confirm each requirement for the saved key, endpoint and default model."
+                  : "Save an OpenAI API key before recording these confirmations.",
+              ),
+              h(
+                "fieldset",
+                { class: "choice-list governance-checklist" },
+                h(
+                  "legend",
+                  { class: "visually-hidden" },
+                  "Governance confirmations",
+                ),
+                ...[
+                  [
+                    "organisationalApproval",
+                    "My organisation has approved OpenAI for this document-generation use case.",
+                  ],
+                  [
+                    "providerTermsReviewed",
+                    "I have reviewed the selected model, endpoint and provider terms.",
+                  ],
+                  [
+                    "dataControlsConfirmed",
+                    "I have confirmed retention, training use and regional-processing arrangements.",
+                  ],
+                  [
+                    "rollbackPlanConfirmed",
+                    "I have an acceptance and rollback plan, and will disable sending if the approved configuration changes.",
+                  ],
+                ].map(([name, label]) =>
+                  h(
+                    "label",
+                    { class: "choice-row" },
+                    h("input", {
+                      type: "checkbox",
+                      name,
+                      "data-governance-check": true,
+                      disabled: !settings?.apiKeyConfigured,
+                      onchange: () => this.updateGovernanceButton(),
+                    }),
+                    h("span", {}, label),
+                  ),
+                ),
+              ),
+              h(
+                "div",
+                { class: "page-actions" },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "button button--primary",
+                    "data-enable-clinical-sending": true,
+                    disabled: true,
+                    onclick: () => void this.setClinicalSendingEnabled(true),
+                  },
+                  "Enable clinical sending",
+                ),
+              ),
+            ),
+      ),
+      h(
+        "section",
+        {
+          class: "panel settings-section",
           "aria-labelledby": "generation-title",
         },
         h(
@@ -3235,9 +3684,10 @@ export class TextReviewPage {
             "label",
             { class: "field field--wide" },
             h("span", {}, "Default model"),
-            modelSelect(models, selected, "model", (event) =>
-              updatePricing((event.target as HTMLSelectElement).value),
-            ),
+            modelSelect(models, selected, "model", (event) => {
+              updatePricing((event.target as HTMLSelectElement).value);
+              this.updateGovernanceButton();
+            }),
             h(
               "span",
               { class: "hint" },
@@ -3381,6 +3831,53 @@ export class TextReviewPage {
     if (result)
       this.message =
         "OpenAI connection confirmed without sending clinical material.";
+    this.render();
+  }
+  private updateGovernanceButton(): void {
+    const checks = [
+      ...this.root.querySelectorAll<HTMLInputElement>(
+        "[data-governance-check]",
+      ),
+    ];
+    const enable = this.root.querySelector<HTMLButtonElement>(
+      "[data-enable-clinical-sending]",
+    );
+    if (enable)
+      enable.disabled =
+        !this.documentSettings?.apiKeyConfigured ||
+        Boolean(
+          this.root.querySelector<HTMLInputElement>('input[name="apiKey"]')
+            ?.value,
+        ) ||
+        this.root.querySelector<HTMLSelectElement>('select[name="model"]')
+          ?.value !== this.documentSettings?.openaiModel ||
+        checks.length !== 4 ||
+        checks.some((check) => !check.checked);
+  }
+  private async setClinicalSendingEnabled(enabled: boolean): Promise<void> {
+    const checked = (name: string) =>
+      this.root.querySelector<HTMLInputElement>(`input[name="${name}"]`)
+        ?.checked ?? false;
+    const confirmations = {
+      organisationalApproval: checked("organisationalApproval"),
+      providerTermsReviewed: checked("providerTermsReviewed"),
+      dataControlsConfirmed: checked("dataControlsConfirmed"),
+      rollbackPlanConfirmed: checked("rollbackPlanConfirmed"),
+    };
+    const result = await this.perform(
+      enabled ? "Enabling clinical sending…" : "Disabling clinical sending…",
+      () =>
+        this.bridge.call<DocumentSettings>("set_clinical_sending_enabled", {
+          enabled,
+          ...confirmations,
+        }),
+    );
+    if (result) {
+      this.documentSettings = result;
+      this.message = enabled
+        ? "Clinical sending enabled for the recorded configuration."
+        : "Clinical sending disabled.";
+    }
     this.render();
   }
   private async removeModel(): Promise<void> {

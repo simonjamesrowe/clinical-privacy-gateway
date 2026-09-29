@@ -47,8 +47,8 @@ web framework.
   accepted exact-match local defaults, with an explicit per-note review option.
 - Provide local patient-document templates, encrypted draft records, clinician
   details, and exact request-token preparation/restoration. The named OpenAI
-  document-generation egress remains unavailable until information-governance
-  approval and provider configuration are recorded.
+  document-generation route remains disabled until the clinician records the
+  provider configuration and every information-governance confirmation.
 
 Client profiles, preset privacy modes, custom form builders, reflective practice
 analysis, semantic search, mobile support, synchronisation, multi-user

@@ -1,6 +1,6 @@
 # Approved AI Egress Intent
 
-**Status:** Document-generation use case named; governance activation blocked
+**Status:** Document-generation use case named; governance activation is explicit
 
 ## Intent
 
@@ -26,8 +26,10 @@ one submission to the named service for the named purpose.
 The first named use case is generation of a patient document from selected
 completed reviewed notes, as specified in
 [Patient Document Generation](../document-generation/intent.md). The destination
-is the configured OpenAI Responses API endpoint. The model, data-processing
-terms, organisational approval, and retention controls remain outstanding.
+is the configured OpenAI Responses API endpoint. The clinician records the
+model/provider review, organisational approval, applicable data controls and
+rollback plan locally before activation. The application does not independently
+verify those organisational decisions.
 
 ## Required behaviour
 
@@ -47,6 +49,8 @@ terms, organisational approval, and retention controls remain outstanding.
 ## Safety invariants
 
 - The default and remembered state is no submission.
+- Changing the saved API key or default model disables clinical sending until
+  the confirmations are recorded again for that configuration.
 - Raw source text, audio, original transcripts, detection provenance, and
   identifier mappings are ineligible for payload construction.
 - Approval is never inferred from saving, copying, a prior approval, or a global

@@ -1,6 +1,6 @@
 # Patient Document Generation Intent
 
-**Status:** Local workflow implemented; external generation blocked
+**Status:** Local workflow implemented; external generation governance-gated
 
 ## Intent
 
@@ -52,6 +52,9 @@ An API key and model alone never activate clinical sending.
 Activation additionally requires every item in
 [Approved AI Egress](../approved-ai-egress/intent.md), including the approved
 OpenAI endpoint, model and applicable data controls.
+Settings provides four explicit local confirmations for these requirements.
+All must be selected in one action; removing the key or changing the saved key
+or default model disables sending and requires a fresh confirmation.
 
 ## Document format
 
@@ -75,11 +78,11 @@ page breaks.
 
 ## Current limitations
 
-External submission, rich generated-document editing, and Word/PDF export
-remain unavailable while clinical sending is blocked. Template rich text and
-local signature editing are available independently of this gate. The screens make
-that state explicit and the native command fails closed before clinical text is
-read.
+External submission remains unavailable until clinical sending is explicitly
+enabled. Rich generated-document editing and Word/PDF export remain incomplete.
+Template rich text and local signature editing are available independently of
+the gate. The screens make the state explicit and the native command fails
+closed before clinical text is read.
 
 ## Success criteria
 
@@ -126,6 +129,9 @@ read.
   are shown separately; averages are unavailable when costs are incomplete.
 - Patient document lists show latest-attempt and cumulative costs. Totals are in
   USD and describe this installation only, not the whole OpenAI account bill.
+- The global Documents library searches title, patient identity and template,
+  and opens the owning patient's Documents tab. New-document actions on the
+  welcome page and global library first ask the clinician to choose a patient.
 - Content-free accounting survives document/patient deletion with the document
   link cleared. It never retains names, titles, source text, prompts or output.
 

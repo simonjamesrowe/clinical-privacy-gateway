@@ -758,6 +758,9 @@ pub fn save_document_settings(
 ) -> PrivacyResult<DocumentSettings> {
     document_model(&openai_model)?;
     if let Some(api_key) = api_key {
+        state
+            .storage()?
+            .set_clinical_sending_enabled(false, [false; 4])?;
         save_openai_key(&api_key)?;
     }
     let profile = state.storage()?.save_clinician_profile(
@@ -777,7 +780,34 @@ pub fn save_document_settings(
 
 #[tauri::command]
 pub fn remove_openai_api_key(state: State<'_, PrivacyState>) -> PrivacyResult<DocumentSettings> {
+    state
+        .storage()?
+        .set_clinical_sending_enabled(false, [false; 4])?;
     remove_openai_key()?;
+    document_settings(state)
+}
+
+#[tauri::command]
+pub fn set_clinical_sending_enabled(
+    state: State<'_, PrivacyState>,
+    enabled: bool,
+    organisational_approval: bool,
+    provider_terms_reviewed: bool,
+    data_controls_confirmed: bool,
+    rollback_plan_confirmed: bool,
+) -> PrivacyResult<DocumentSettings> {
+    if enabled && !openai_key_configured() {
+        return Err("Save an OpenAI API key before enabling clinical sending.");
+    }
+    state.storage()?.set_clinical_sending_enabled(
+        enabled,
+        [
+            organisational_approval,
+            provider_terms_reviewed,
+            data_controls_confirmed,
+            rollback_plan_confirmed,
+        ],
+    )?;
     document_settings(state)
 }
 
@@ -818,6 +848,11 @@ pub fn list_patient_documents(
     patient_id: i64,
 ) -> PrivacyResult<Vec<DocumentSummary>> {
     state.storage()?.documents(patient_id)
+}
+
+#[tauri::command]
+pub fn list_documents(state: State<'_, PrivacyState>) -> PrivacyResult<Vec<DocumentSummary>> {
+    state.storage()?.all_documents()
 }
 
 #[tauri::command]

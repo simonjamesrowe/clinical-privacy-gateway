@@ -97,6 +97,8 @@ pub struct DocumentSummary {
     pub reviewed: bool,
     pub created_at: i64,
     pub updated_at: i64,
+    pub patient_name: Option<String>,
+    pub patient_reference: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -825,8 +827,29 @@ impl Storage {
                 .execute(
                     "UPDATE clinician_profile SET display_name = ?1, role = ?2, qualifications = ?3,
                      signature = CASE WHEN ?4 THEN NULL WHEN ?5 IS NOT NULL THEN ?5 ELSE signature END,
+                     clinical_sending_enabled = CASE WHEN openai_model <> ?6 THEN 0 ELSE clinical_sending_enabled END,
                      openai_model = ?6 WHERE singleton = 1",
                     params![display_name, role, qualifications, remove_signature, signature, openai_model],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            Ok(())
+        })?;
+        self.clinician_profile()
+    }
+
+    pub fn set_clinical_sending_enabled(
+        &self,
+        enabled: bool,
+        confirmations: [bool; 4],
+    ) -> PrivacyResult<ClinicianProfileView> {
+        if enabled && !confirmations.into_iter().all(|confirmed| confirmed) {
+            return Err("Confirm every information-governance requirement before enabling clinical sending.");
+        }
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE clinician_profile SET clinical_sending_enabled = ?1 WHERE singleton = 1",
+                    [enabled],
                 )
                 .map_err(|_| STORAGE_ERROR)?;
             Ok(())
@@ -846,6 +869,30 @@ impl Storage {
                 .query_map([patient_id], document_summary)
                 .map_err(|_| STORAGE_ERROR)?;
             let mut documents: Vec<DocumentSummary> = rows.map(|row| row.map_err(|_| STORAGE_ERROR)).collect::<PrivacyResult<_>>()?;
+            for document in &mut documents {
+                document.usage = usage::summary(connection, None, None, Some(document.id))?;
+            }
+            Ok(documents)
+        })
+    }
+
+    pub fn all_documents(&self) -> PrivacyResult<Vec<DocumentSummary>> {
+        self.with_connection(|connection| {
+            let mut statement = connection
+                .prepare(
+                    "SELECT d.id, d.patient_id, d.title, d.template_name, d.revision, d.reviewed,
+                            d.created_at, d.updated_at, p.name, p.patient_reference
+                     FROM patient_documents d
+                     JOIN patients p ON p.id = d.patient_id
+                     ORDER BY d.updated_at DESC, d.id DESC",
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            let rows = statement
+                .query_map([], global_document_summary)
+                .map_err(|_| STORAGE_ERROR)?;
+            let mut documents: Vec<DocumentSummary> = rows
+                .map(|row| row.map_err(|_| STORAGE_ERROR))
+                .collect::<PrivacyResult<_>>()?;
             for document in &mut documents {
                 document.usage = usage::summary(connection, None, None, Some(document.id))?;
             }
@@ -1400,6 +1447,16 @@ fn document_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentSummary
         reviewed: row.get(5)?,
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
+        patient_name: None,
+        patient_reference: None,
+    })
+}
+
+fn global_document_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentSummary> {
+    Ok(DocumentSummary {
+        patient_name: row.get(8)?,
+        patient_reference: row.get(9)?,
+        ..document_summary(row)?
     })
 }
 
@@ -2093,6 +2150,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(store.documents(patient.id).unwrap().len(), 1);
+        let library = store.all_documents().unwrap();
+        assert_eq!(library.len(), 1);
+        assert_eq!(library[0].patient_name.as_deref(), Some("Synthetic Client"));
+        assert_eq!(library[0].patient_reference.as_deref(), Some("SYN-15"));
         assert!(!document.reviewed);
 
         let reviewed = store
@@ -2116,6 +2177,37 @@ mod tests {
         assert_eq!(
             store.patient_document(document.id).err(),
             Some(DOCUMENT_UNAVAILABLE)
+        );
+    }
+
+    #[test]
+    fn clinical_sending_requires_every_recorded_confirmation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage::open_for_test(dir.path().join("governance.sqlite"), [17; 32]).unwrap();
+
+        assert!(store
+            .set_clinical_sending_enabled(true, [true, true, false, true])
+            .is_err());
+        assert!(!store.clinician_profile().unwrap().clinical_sending_enabled);
+
+        assert!(
+            store
+                .set_clinical_sending_enabled(true, [true; 4])
+                .unwrap()
+                .clinical_sending_enabled
+        );
+        assert!(
+            !store
+                .save_clinician_profile("", "", "", None, false, "gpt-4.1-2025-04-14",)
+                .unwrap()
+                .clinical_sending_enabled
+        );
+        store.set_clinical_sending_enabled(true, [true; 4]).unwrap();
+        assert!(
+            !store
+                .set_clinical_sending_enabled(false, [false; 4])
+                .unwrap()
+                .clinical_sending_enabled
         );
     }
 

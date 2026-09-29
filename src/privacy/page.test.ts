@@ -8,7 +8,7 @@ import {
   vi,
   type Mock,
 } from "vitest";
-import { TextReviewPage } from "./page";
+import { TextReviewPage, type WorkspaceScreen } from "./page";
 import type { PrivacyBridge, Progress, ReviewSession } from "./types";
 
 const source = "Alex Morgan takes 10 mg.";
@@ -96,7 +96,7 @@ function input(value: string) {
 }
 async function mount(
   available = true,
-  initialScreen: "patients" | "review" | "notes" = "review",
+  initialScreen: WorkspaceScreen | "review" = "review",
 ) {
   const bridge: PrivacyBridge = {
     available,
@@ -305,6 +305,50 @@ describe("text review", () => {
     );
     expect(root.textContent).toContain("Clinical sending is not enabled");
     expect(root.textContent).toContain("Review submission");
+  });
+
+  it("lists and searches documents across patients and starts from a patient chooser", async () => {
+    mockLibrary({
+      list_document_templates: [],
+      document_settings: documentSettings,
+      list_documents: [
+        {
+          id: 12,
+          patientId: patient.id,
+          patientName: patient.name,
+          patientReference: patient.patientReference,
+          title: "Synthetic GP update",
+          templateName: "GP letter",
+          revision: 1,
+          reviewed: false,
+          createdAt: 1_790_000_000,
+          updatedAt: 1_790_000_100,
+          usage: {
+            ...emptyUsage,
+            generationAttempts: 1,
+            latestCostNanos: 900_000,
+          },
+        },
+      ],
+    });
+    await mount(true, "documents");
+    expect(root.querySelector("#documents-title")?.textContent).toBe(
+      "Documents",
+    );
+    expect(root.textContent).toContain("Synthetic GP update");
+    expect(root.textContent).toContain("Synthetic Client");
+    type("#search", "missing");
+    await submit("[data-search]");
+    expect(root.textContent).toContain("No documents match “missing”");
+    await click("[data-new-document]");
+    expect(root.querySelector("#document-patient-title")?.textContent).toBe(
+      "New document",
+    );
+    expect(root.textContent).toContain("Choose the patient");
+    await click('[data-choose-document-patient="7"]');
+    expect(root.querySelector("#new-document-title")?.textContent).toBe(
+      "New document",
+    );
   });
 
   it("starts a new note from a patient and includes that patient in detection", async () => {
@@ -1796,6 +1840,48 @@ describe("document model selection and usage", () => {
 });
 
 describe("template editing and settings sections", () => {
+  it("records every governance confirmation before enabling clinical sending", async () => {
+    mockLibrary({
+      document_settings: documentSettings,
+      set_clinical_sending_enabled: {
+        ...documentSettings,
+        clinicalSendingEnabled: true,
+      },
+    });
+    await mount(true, "patients");
+    await click('[data-route="settings"]');
+    const confirmations = [
+      ...root.querySelectorAll<HTMLInputElement>("[data-governance-check]"),
+    ];
+    expect(confirmations).toHaveLength(4);
+    expect(button("[data-enable-clinical-sending]").disabled).toBe(true);
+    confirmations.forEach((confirmation) => {
+      confirmation.checked = true;
+      confirmation.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(button("[data-enable-clinical-sending]").disabled).toBe(false);
+    const model = root.querySelector<HTMLSelectElement>(
+      'select[name="model"]',
+    )!;
+    model.value = models[1].id;
+    model.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(button("[data-enable-clinical-sending]").disabled).toBe(true);
+    model.value = models[0].id;
+    model.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(button("[data-enable-clinical-sending]").disabled).toBe(false);
+    await click("[data-enable-clinical-sending]");
+    expect(call).toHaveBeenCalledWith("set_clinical_sending_enabled", {
+      enabled: true,
+      organisationalApproval: true,
+      providerTermsReviewed: true,
+      dataControlsConfirmed: true,
+      rollbackPlanConfirmed: true,
+    });
+    expect(root.textContent).toContain(
+      "Enabled for the recorded configuration",
+    );
+  });
+
   it("saves formatted instructions as Markdown and protects unsaved changes", async () => {
     mockLibrary({
       list_document_templates: [],
@@ -1839,7 +1925,7 @@ describe("template editing and settings sections", () => {
     expect(
       root.querySelector('input[name="apiKey"]')?.closest(".field"),
     ).not.toBeNull();
-    expect(root.querySelectorAll(".settings-section")).toHaveLength(4);
+    expect(root.querySelectorAll(".settings-section")).toHaveLength(5);
     type('input[name="displayName"]', "Dr Synthetic");
     const period = root.querySelector<HTMLSelectElement>(
       "[data-usage-period]",

@@ -73,6 +73,12 @@ Provider credentials use a separate Keychain item. The encrypted database key,
 provider credential, clinical material, source metadata, token map, clinician
 profile, and signature have separate lifecycles and are never combined in logs.
 Recording a credential does not enable clinical sending.
+Settings can enable the route only after the clinician explicitly records all
+four governance confirmations for the saved provider configuration. The native
+command validates that every confirmation is present and that a Keychain
+credential exists. Replacing/removing the key or changing the default model
+resets the flag to disabled. This record supports a local workflow; it does not
+claim that the application verified organisational approval.
 
 Redirects must not bypass destination validation. Validate each parsed origin
 and each redirect hop before sending. Raw source text, source audio, original

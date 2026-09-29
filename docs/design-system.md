@@ -140,6 +140,12 @@ note returns to that patient's Notes tab.
   Any edit returns it to draft.
 - The current governance-blocked state is a notice, not a disabled control with
   no explanation. Saving a provider key never implies that sending is enabled.
+- Settings gives clinical sending its own bordered section. Four standard
+  checkbox rows record the required confirmations; the enable action remains
+  disabled until all four are selected and a provider key is already saved.
+- **Documents** is a first-class top-level library. Its table follows Patients
+  and Notes: one search field, a count/status line, row openers, patient context,
+  review status, and latest/total generation cost columns.
 
 ## Copy
 
@@ -208,7 +214,8 @@ in each option and the cached-input rates and price-check date in Settings.
 sub-cent precision. Partial totals explicitly add **unknown costs**, and never
 render missing usage as a zero-cost request. The patient Documents table adds
 **Latest cost** and **Total cost** columns. The existing design-system screens
-include synthetic examples of the selectors and usage table.
+include synthetic examples of the selectors, usage table and cross-patient
+Documents library.
 
 
 ### Template and settings configuration

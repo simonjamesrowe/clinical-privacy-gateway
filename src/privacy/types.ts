@@ -91,6 +91,8 @@ export interface DocumentSummary {
   reviewed: boolean;
   createdAt: number;
   updatedAt: number;
+  patientName?: string | null;
+  patientReference?: string | null;
 }
 export interface DocumentSettings {
   models: DocumentModel[];
