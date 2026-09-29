@@ -1808,6 +1808,75 @@ describe("document model selection and usage", () => {
     ).toHaveLength(1);
     expect(root.textContent).toContain("Document draft saved.");
   });
+  it("opens a saved document in the rich editor and saves a new revision", async () => {
+    const savedDocument = {
+      id: 8,
+      patientId: patient.id,
+      title: "Synthetic letter",
+      templateId: 1,
+      templateName: "GP letter",
+      revision: 2,
+      body: {
+        blocks: [
+          {
+            kind: "heading",
+            runs: [{ text: "Progress", bold: false }],
+          },
+          {
+            kind: "paragraph",
+            runs: [
+              { text: "Synthetic ", bold: false },
+              { text: "review", bold: true },
+            ],
+          },
+        ],
+      },
+      reviewed: false,
+      includeSignature: false,
+      createdAt: 1_790_000_000,
+      updatedAt: 1_790_000_100,
+    };
+    fixture({
+      list_patient_documents: [
+        {
+          id: 8,
+          patientId: patient.id,
+          title: savedDocument.title,
+          templateName: savedDocument.templateName,
+          revision: savedDocument.revision,
+          reviewed: false,
+          createdAt: savedDocument.createdAt,
+          updatedAt: savedDocument.updatedAt,
+          usage: emptyUsage,
+        },
+      ],
+      patient_document: savedDocument,
+      update_patient_document: { ...savedDocument, revision: 3 },
+    });
+    await mount(true, "patients");
+    await click("[data-open-patient]");
+    await click("#tab-documents");
+    await click('[data-open-document="8"]');
+    expect(root.querySelector("#edit-document-title")?.textContent).toBe(
+      "Edit document",
+    );
+    expect(root.querySelector(".markdown-editor h2")?.textContent).toBe(
+      "Progress",
+    );
+    expect(root.querySelector(".markdown-editor strong")?.textContent).toBe(
+      "review",
+    );
+    type("#document-edit-title", "Revised synthetic letter");
+    await submit("[data-document-edit]");
+    expect(call).toHaveBeenCalledWith("update_patient_document", {
+      id: 8,
+      title: "Revised synthetic letter",
+      body: savedDocument.body,
+      reviewed: false,
+      includeSignature: false,
+    });
+    expect(root.textContent).toContain("Document updated.");
+  });
   it("keeps an unavailable legacy model visible and requires an explicit selection", async () => {
     fixture({
       document_settings: { ...documentSettings, openaiModel: "legacy-model" },

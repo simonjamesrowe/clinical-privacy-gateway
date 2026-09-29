@@ -94,6 +94,30 @@ export interface DocumentSummary {
   patientName?: string | null;
   patientReference?: string | null;
 }
+export interface PatientDocumentRun {
+  text: string;
+  bold: boolean;
+}
+export interface PatientDocumentBlock {
+  kind: "paragraph" | "heading" | "bulleted_list";
+  runs: PatientDocumentRun[];
+}
+export interface PatientDocumentBody {
+  blocks: PatientDocumentBlock[];
+}
+export interface PatientDocument {
+  id: number;
+  patientId: number;
+  title: string;
+  templateId: number;
+  templateName: string;
+  revision: number;
+  body: PatientDocumentBody;
+  reviewed: boolean;
+  includeSignature: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
 export interface DocumentSettings {
   models: DocumentModel[];
   displayName: string;

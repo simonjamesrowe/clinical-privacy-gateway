@@ -141,6 +141,7 @@ pub fn run() {
             privacy::list_patient_documents,
             privacy::patient_document,
             privacy::save_patient_document,
+            privacy::update_patient_document,
             privacy::delete_patient_document,
             privacy::prepare_document_submission,
             privacy::submit_document_generation

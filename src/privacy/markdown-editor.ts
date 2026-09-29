@@ -22,6 +22,11 @@ import {
   sinkListItem,
 } from "prosemirror-schema-list";
 import { h } from "./dom";
+import type {
+  PatientDocumentBlock,
+  PatientDocumentBody,
+  PatientDocumentRun,
+} from "./types";
 
 // No image or link nodes: formatted text cannot load remote content, even when pasted.
 const schema = new Schema({
@@ -53,6 +58,100 @@ export function renderMarkdown(text: string): HTMLElement {
     ),
   );
   return node;
+}
+
+function documentRuns(
+  node: import("prosemirror-model").Node,
+): PatientDocumentRun[] {
+  const runs: PatientDocumentRun[] = [];
+  node.descendants((child) => {
+    if (child.isText) {
+      const run = {
+        text: child.text ?? "",
+        bold: child.marks.some((mark) => mark.type === schema.marks.strong),
+      };
+      const previous = runs.at(-1);
+      if (previous?.bold === run.bold) previous.text += run.text;
+      else runs.push(run);
+    } else if (child.type === schema.nodes.hard_break) {
+      const previous = runs.at(-1);
+      if (previous?.bold === false) previous.text += "\n";
+      else runs.push({ text: "\n", bold: false });
+    }
+    return true;
+  });
+  return runs.length ? runs : [{ text: "", bold: false }];
+}
+
+export function markdownToDocumentBody(markdown: string): PatientDocumentBody {
+  const blocks: PatientDocumentBlock[] = [];
+  const addList = (list: import("prosemirror-model").Node) => {
+    list.forEach((item) => {
+      item.forEach((child) => {
+        if (child.type === schema.nodes.paragraph)
+          blocks.push({ kind: "bulleted_list", runs: documentRuns(child) });
+        else if (child.type === schema.nodes.bullet_list) addList(child);
+      });
+    });
+  };
+  parser.parse(markdown).forEach((node) => {
+    if (node.type === schema.nodes.heading)
+      blocks.push({ kind: "heading", runs: documentRuns(node) });
+    else if (node.type === schema.nodes.bullet_list) addList(node);
+    else if (node.type === schema.nodes.paragraph)
+      blocks.push({ kind: "paragraph", runs: documentRuns(node) });
+    else blocks.push({ kind: "paragraph", runs: documentRuns(node) });
+  });
+  return {
+    blocks: blocks.length
+      ? blocks
+      : [{ kind: "paragraph", runs: [{ text: "", bold: false }] }],
+  };
+}
+
+export function documentBodyToMarkdown(body: PatientDocumentBody): string {
+  const inline = (runs: PatientDocumentRun[]) =>
+    runs.flatMap((run) => {
+      if (!run.text) return [];
+      return [
+        schema.text(
+          run.text,
+          run.bold ? [schema.marks.strong.create()] : undefined,
+        ),
+      ];
+    });
+  const nodes: import("prosemirror-model").Node[] = [];
+  for (let index = 0; index < body.blocks.length; ) {
+    const block = body.blocks[index];
+    if (block.kind === "bulleted_list") {
+      const items: import("prosemirror-model").Node[] = [];
+      while (body.blocks[index]?.kind === "bulleted_list") {
+        items.push(
+          schema.nodes.list_item.create(
+            null,
+            schema.nodes.paragraph.create(
+              null,
+              inline(body.blocks[index].runs),
+            ),
+          ),
+        );
+        index += 1;
+      }
+      nodes.push(schema.nodes.bullet_list.create(null, items));
+      continue;
+    }
+    nodes.push(
+      block.kind === "heading"
+        ? schema.nodes.heading.create({ level: 2 }, inline(block.runs))
+        : schema.nodes.paragraph.create(null, inline(block.runs)),
+    );
+    index += 1;
+  }
+  const document = schema.nodes.doc.create(
+    null,
+    nodes.length ? nodes : [schema.nodes.paragraph.create()],
+  );
+  return defaultMarkdownSerializer.serialize(document);
 }
 
 // Local SVG paths share the app's stroke weight; no icon font or remote assets.
@@ -90,6 +189,7 @@ function editorIcon(name: keyof typeof editorIcons): SVGSVGElement {
 export function markdownEditor(
   value: string,
   onChange: (markdown: string) => void,
+  options: { document?: boolean } = {},
 ): { element: HTMLElement; destroy: () => void } {
   const host = h("div", { class: "markdown-editor__surface" });
   const source = h("textarea", {
@@ -108,7 +208,7 @@ export function markdownEditor(
         history(),
         keymap({
           "Mod-b": toggleMark(schema.marks.strong),
-          "Mod-i": toggleMark(schema.marks.em),
+          ...(options.document ? {} : { "Mod-i": toggleMark(schema.marks.em) }),
           "Mod-z": undo,
           "Mod-Shift-z": redo,
           Enter: splitListItem(schema.nodes.list_item),
@@ -231,13 +331,14 @@ export function markdownEditor(
       () => markActive("strong"),
       "⌘B",
     ),
-    button(
-      "Italic",
-      "italic",
-      toggleMark(schema.marks.em),
-      () => markActive("em"),
-      "⌘I",
-    ),
+    !options.document &&
+      button(
+        "Italic",
+        "italic",
+        toggleMark(schema.marks.em),
+        () => markActive("em"),
+        "⌘I",
+      ),
     button(
       "Bullet list",
       "list",
@@ -296,7 +397,9 @@ export function markdownEditor(
       h(
         "p",
         { class: "hint" },
-        "Headings, bold and lists are saved as Markdown. ⌘B bold · ⌘I italic.",
+        options.document
+          ? "Headings, bold and lists are saved in the document. ⌘B bold."
+          : "Headings, bold and lists are saved as Markdown. ⌘B bold · ⌘I italic.",
       ),
     ),
     destroy: () => view.destroy(),

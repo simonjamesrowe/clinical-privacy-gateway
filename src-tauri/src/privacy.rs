@@ -895,6 +895,20 @@ pub fn save_patient_document(
 }
 
 #[tauri::command]
+pub fn update_patient_document(
+    state: State<'_, PrivacyState>,
+    id: i64,
+    title: String,
+    body: DocumentBody,
+    reviewed: bool,
+    include_signature: bool,
+) -> PrivacyResult<PatientDocument> {
+    state
+        .storage()?
+        .update_document(id, &title, &body, reviewed, include_signature)
+}
+
+#[tauri::command]
 pub fn delete_patient_document(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<()> {
     state.storage()?.delete_document(id)
 }

@@ -1,4 +1,9 @@
-import { markdownEditor, renderMarkdown } from "./markdown-editor";
+import {
+  documentBodyToMarkdown,
+  markdownEditor,
+  markdownToDocumentBody,
+  renderMarkdown,
+} from "./markdown-editor";
 import { signaturePad, emptySignatureDraft } from "./signature-pad";
 import { documentLabel, MAX_SOURCE_CHARACTERS } from "./documents";
 import type {
@@ -19,6 +24,7 @@ import type {
   NoteSummary,
   NoteView,
   OpenedNote,
+  PatientDocument,
   PatientView,
   PrivacyBridge,
   ReviewSession,
@@ -80,6 +86,7 @@ type Route =
   | { name: "patient-new" }
   | { name: "patient"; patientId: number; tab: Tab }
   | { name: "document-new"; patientId: number }
+  | { name: "document-edit"; documentId: number }
   | { name: "document-patient" }
   | { name: "note-patient" }
   | { name: "documents" }
@@ -108,6 +115,13 @@ interface TemplateEdit {
   name: string;
   description: string;
   instructions: string;
+}
+interface DocumentEdit {
+  document: PatientDocument;
+  title: string;
+  markdown: string;
+  reviewed: boolean;
+  includeSignature: boolean;
 }
 
 const EXAMPLE =
@@ -194,6 +208,8 @@ export class TextReviewPage {
   private documentId: number | undefined;
   private templateEdit: TemplateEdit | null = null;
   private templateEditor: ReturnType<typeof markdownEditor> | null = null;
+  private documentEditor: ReturnType<typeof markdownEditor> | null = null;
+  private documentEdit: DocumentEdit | null = null;
   private signatureDraft = emptySignatureDraft();
   private settingsDraft: Record<string, string> | null = null;
   private templateQuery = "";
@@ -261,6 +277,8 @@ export class TextReviewPage {
   dispose(): void {
     this.templateEditor?.destroy();
     this.templateEditor = null;
+    this.documentEditor?.destroy();
+    this.documentEditor = null;
     this.settingsDraft = null;
     this.signatureDraft = emptySignatureDraft();
     this.disposed = true;
@@ -303,6 +321,8 @@ export class TextReviewPage {
     if (this.disposed) return;
     this.templateEditor?.destroy();
     this.templateEditor = null;
+    this.documentEditor?.destroy();
+    this.documentEditor = null;
     const existingForm = this.root.querySelector<HTMLFormElement>(
       "[data-document-settings]",
     );
@@ -351,6 +371,10 @@ export class TextReviewPage {
         return this.templatesScreen();
       case "document-new":
         return this.newDocumentScreen();
+      case "document-edit":
+        return this.documentEdit
+          ? this.editDocumentScreen(this.documentEdit)
+          : this.documentsScreen();
       case "settings":
         return this.settingsScreen();
     }
@@ -365,7 +389,9 @@ export class TextReviewPage {
       ? name
       : name === "note-patient"
         ? "notes"
-        : name === "document-patient" || name === "document-new"
+        : name === "document-patient" ||
+            name === "document-new" ||
+            name === "document-edit"
           ? "documents"
           : "patients";
   }
@@ -574,6 +600,7 @@ export class TextReviewPage {
     options: { flash?: string; keepQuery?: boolean; focus?: string } = {},
   ): Promise<void> {
     this.templateEdit = null;
+    if (route.name !== "document-edit") this.documentEdit = null;
     this.settingsDraft = null;
     this.signatureDraft = emptySignatureDraft();
     this.root.querySelector("[data-document-settings]")?.remove();
@@ -704,6 +731,34 @@ export class TextReviewPage {
         this.documentDraft.model = result.settings.openaiModel;
         return;
       }
+      case "document-edit": {
+        const result = await this.perform("Opening document…", async () => {
+          const [document, patients, settings] = await Promise.all([
+            call<PatientDocument>("patient_document", {
+              id: route.documentId,
+            }),
+            call<PatientView[]>("list_patients"),
+            call<DocumentSettings>("document_settings"),
+          ]);
+          const patient = patients.find(
+            (item) => item.id === document.patientId,
+          );
+          if (!patient) throw "This patient is no longer available.";
+          return { document, patients, patient, settings };
+        });
+        if (!result) return;
+        this.patients = result.patients;
+        this.patient = result.patient;
+        this.documentSettings = result.settings;
+        this.documentEdit = {
+          document: result.document,
+          title: result.document.title,
+          markdown: documentBodyToMarkdown(result.document.body),
+          reviewed: result.document.reviewed,
+          includeSignature: result.document.includeSignature,
+        };
+        return;
+      }
       case "document-patient":
       case "note-patient": {
         const result = await this.perform("Loading patients…", () =>
@@ -786,6 +841,15 @@ export class TextReviewPage {
     return this.source.trim().length > 0 || this.imported !== null;
   }
   private hasUnsavedConfiguration(): boolean {
+    if (this.documentEdit) {
+      const edit = this.documentEdit;
+      return (
+        edit.title !== edit.document.title ||
+        edit.markdown !== documentBodyToMarkdown(edit.document.body) ||
+        edit.reviewed !== edit.document.reviewed ||
+        edit.includeSignature !== edit.document.includeSignature
+      );
+    }
     if (this.templateEdit) {
       const original = this.templates.find(
         (item) => item.id === this.templateEdit?.id,
@@ -2056,9 +2120,8 @@ export class TextReviewPage {
               ? rows.map((document) => {
                   const open = () =>
                     void this.navigate({
-                      name: "patient",
-                      patientId: document.patientId,
-                      tab: "documents",
+                      name: "document-edit",
+                      documentId: document.id,
                     });
                   return h(
                     "tr",
@@ -2082,7 +2145,7 @@ export class TextReviewPage {
                         {
                           type: "button",
                           class: "row-open",
-                          "data-open-document-patient": document.patientId,
+                          "data-open-document": document.id,
                           onclick: open,
                         },
                         document.title,
@@ -2342,11 +2405,29 @@ export class TextReviewPage {
           { label: "Latest cost" },
           { label: "Total cost" },
         ],
-        this.documents.map((document) =>
-          h(
+        this.documents.map((document) => {
+          const open = () =>
+            void this.navigate({
+              name: "document-edit",
+              documentId: document.id,
+            });
+          return h(
             "tr",
-            {},
-            h("td", {}, document.title),
+            { class: "row-link", onclick: rowOpener(open) },
+            h(
+              "td",
+              {},
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "row-open",
+                  "data-open-document": document.id,
+                  onclick: open,
+                },
+                document.title,
+              ),
+            ),
             h("td", {}, document.templateName),
             h("td", { class: "mono" }, formatDate(document.createdAt)),
             h(
@@ -2374,10 +2455,178 @@ export class TextReviewPage {
                 ? "—"
                 : `${usd(document.usage.knownCostNanos)}${document.usage.unknownCostAttempts ? " + unknown" : ""}`,
             ),
+          );
+        }),
+      ),
+    ];
+  }
+
+  private editDocumentScreen(edit: DocumentEdit): Node[] {
+    const patient = this.patient;
+    if (!patient) return this.documentsScreen();
+    this.documentEditor = markdownEditor(
+      edit.markdown,
+      (value) => {
+        edit.markdown = value;
+      },
+      { document: true },
+    );
+    const hasSignature = Boolean(this.documentSettings?.hasSignature);
+    return [
+      breadcrumb([
+        {
+          label: "Patients",
+          onSelect: () => void this.navigate({ name: "patients" }),
+        },
+        {
+          label: patient.name,
+          onSelect: () =>
+            void this.navigate({
+              name: "patient",
+              patientId: patient.id,
+              tab: "documents",
+            }),
+        },
+        { label: "Documents" },
+        { label: edit.document.title },
+      ]),
+      pageHeader({
+        eyebrow: "Patient document",
+        title: ["Edit document"],
+        id: "edit-document-title",
+        description: `${edit.document.templateName} · Revision ${edit.document.revision}`,
+      }),
+      this.errorNotice(),
+      h(
+        "form",
+        {
+          class: "template-form",
+          "data-document-edit": edit.document.id,
+          onsubmit: (event) => {
+            event.preventDefault();
+            void this.saveEditedDocument(edit);
+          },
+        },
+        h(
+          "div",
+          { class: "editor-layout" },
+          h(
+            "aside",
+            { class: "panel form-stack editor-details" },
+            h("h2", { class: "section-title" }, "Document details"),
+            h(
+              "label",
+              { class: "field" },
+              h("span", {}, "Title"),
+              h("input", {
+                id: "document-edit-title",
+                maxlength: 160,
+                value: edit.title,
+                oninput: (event) => {
+                  edit.title = (event.target as HTMLInputElement).value;
+                },
+              }),
+            ),
+            h(
+              "label",
+              { class: "check-row" },
+              h("input", {
+                type: "checkbox",
+                checked: edit.reviewed,
+                onchange: (event) => {
+                  edit.reviewed = (event.target as HTMLInputElement).checked;
+                },
+              }),
+              h(
+                "span",
+                {},
+                h("strong", {}, "Mark this revision as reviewed"),
+                h(
+                  "small",
+                  {},
+                  "Confirms that you have checked the complete document.",
+                ),
+              ),
+            ),
+            h(
+              "label",
+              { class: "check-row" },
+              h("input", {
+                type: "checkbox",
+                checked: edit.includeSignature,
+                disabled: !hasSignature,
+                onchange: (event) => {
+                  edit.includeSignature = (
+                    event.target as HTMLInputElement
+                  ).checked;
+                },
+              }),
+              h(
+                "span",
+                {},
+                h("strong", {}, "Include clinician signature"),
+                h(
+                  "small",
+                  {},
+                  hasSignature
+                    ? "Saved locally with a reviewed revision."
+                    : "Add a signature in Settings before selecting this.",
+                ),
+              ),
+            ),
+          ),
+          h(
+            "section",
+            { class: "form-stack", "aria-label": "Document content" },
+            h("h2", { class: "section-title" }, "Document content"),
+            this.documentEditor.element,
+          ),
+        ),
+        h(
+          "div",
+          { class: "form-actions form-actions--split" },
+          h(
+            "button",
+            {
+              type: "button",
+              class: "button",
+              onclick: () =>
+                void this.navigate({
+                  name: "patient",
+                  patientId: patient.id,
+                  tab: "documents",
+                }),
+            },
+            "Cancel",
+          ),
+          h(
+            "button",
+            { type: "submit", class: "button button--primary" },
+            "Save changes",
           ),
         ),
       ),
     ];
+  }
+
+  private async saveEditedDocument(edit: DocumentEdit): Promise<void> {
+    const saved = await this.perform("Saving document…", () =>
+      this.bridge.call<PatientDocument>("update_patient_document", {
+        id: edit.document.id,
+        title: edit.title,
+        body: markdownToDocumentBody(edit.markdown),
+        reviewed: edit.reviewed,
+        includeSignature: edit.includeSignature,
+      }),
+    );
+    if (saved && this.patient) {
+      const patientId = this.patient.id;
+      this.documentEdit = null;
+      await this.show(
+        { name: "patient", patientId, tab: "documents" },
+        { flash: "Document updated." },
+      );
+    } else this.render();
   }
 
   private newDocumentScreen(): Node[] {
@@ -4145,7 +4394,7 @@ export class TextReviewPage {
         this.generatedDocument
           ? " Unsaved document text will be cleared. Generation costs remain in your usage totals."
           : this.hasUnsavedConfiguration()
-            ? " Unsaved template or settings changes will be cleared."
+            ? " Unsaved document, template or settings changes will be cleared."
             : " The imported document, source text and review decisions will be cleared.",
       ),
       h(

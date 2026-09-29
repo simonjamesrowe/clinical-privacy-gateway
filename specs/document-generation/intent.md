@@ -43,6 +43,10 @@ result, edits it, and saves or exports a reviewed document.
   restoration data, profile snapshots, and content-free outcomes in SQLCipher.
 - Save clinician details and signature with a reviewed revision so later
   profile changes cannot rewrite it.
+- Open saved drafts and reviewed documents from either document table. Edit the
+  title and constrained rich-text body, choose the reviewed state and local
+  signature inclusion, then save a new revision without changing its patient,
+  template or source-note bindings.
 - Keep restored document bodies and signatures out of note search.
 
 ## Activation gate
@@ -84,10 +88,10 @@ page breaks.
 ## Current limitations
 
 External submission remains unavailable until clinical sending is explicitly
-enabled. Rich generated-document editing and Word/PDF export remain incomplete.
-Template rich text and local signature editing are available independently of
-the gate. The screens make the state explicit and the native command fails
-closed before clinical text is read.
+enabled. Word/PDF export remains incomplete. Template and saved-document rich
+text plus local signature editing are available independently of the gate. The
+screens make the state explicit and the native command fails closed before
+clinical text is read.
 
 ## Success criteria
 

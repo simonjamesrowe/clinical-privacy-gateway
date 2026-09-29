@@ -1014,6 +1014,68 @@ impl Storage {
         })
     }
 
+    /// Updates editable document fields while retaining the patient, template
+    /// and source-note bindings chosen when the document was created.
+    pub fn update_document(
+        &self,
+        id: i64,
+        title: &str,
+        body: &DocumentBody,
+        reviewed: bool,
+        include_signature: bool,
+    ) -> PrivacyResult<PatientDocument> {
+        let title = normalise_required(
+            title,
+            160,
+            "Enter a document title.",
+            "Use at most 160 characters for the document title.",
+        )?;
+        body.validate()?;
+        if reviewed && body.plain_text().contains("⟪CV_") {
+            return Err(
+                "Resolve or remove every unknown placeholder before marking the document reviewed.",
+            );
+        }
+        let timestamp = now()?;
+        let body_json = serde_json::to_string(body).map_err(|_| STORAGE_ERROR)?;
+        self.with_connection(|connection| {
+            let transaction = connection.transaction().map_err(|_| STORAGE_ERROR)?;
+            let profile: (String, String, String, Option<Vec<u8>>) = transaction
+                .query_row(
+                    "SELECT display_name, role, qualifications, signature FROM clinician_profile WHERE singleton = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            let clinician = ClinicianProfile {
+                display_name: profile.0,
+                role: profile.1,
+                qualifications: profile.2,
+                has_signature: profile.3.is_some(),
+            };
+            let clinician_json = serde_json::to_string(&clinician).map_err(|_| STORAGE_ERROR)?;
+            let changed = transaction
+                .execute(
+                    "UPDATE patient_documents SET title = ?1, body = ?2, revision = revision + 1,
+                     reviewed = ?3, include_signature = ?4,
+                     clinician_snapshot = CASE WHEN ?3 THEN ?5 ELSE clinician_snapshot END,
+                     signature_snapshot = CASE
+                       WHEN ?3 AND ?4 AND ?6 IS NOT NULL THEN ?6
+                       WHEN ?3 AND ?4 THEN signature_snapshot
+                       WHEN ?3 THEN NULL ELSE signature_snapshot END,
+                     updated_at = ?7 WHERE id = ?8",
+                    params![title, body_json, reviewed, include_signature, clinician_json, profile.3, timestamp, id],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            if changed == 0 {
+                return Err(DOCUMENT_UNAVAILABLE);
+            }
+            let document = select_document(&transaction, id)?;
+            transaction.commit().map_err(|_| STORAGE_ERROR)?;
+            Ok(document)
+        })
+    }
+
     pub fn delete_document(&self, id: i64) -> PrivacyResult<()> {
         self.with_connection(|connection| {
             let deleted = connection
@@ -2205,20 +2267,48 @@ mod tests {
         assert!(!document.reviewed);
 
         let reviewed = store
-            .save_document(
-                Some(document.id),
-                patient.id,
-                "Synthetic letter",
-                template.id,
-                &body,
-                true,
-                false,
-                &[note.id],
-            )
+            .update_document(document.id, "Revised synthetic letter", &body, true, false)
             .unwrap();
         assert!(reviewed.reviewed);
         assert_eq!(reviewed.revision, 2);
+        assert_eq!(reviewed.title, "Revised synthetic letter");
+        assert_eq!(
+            store
+                .with_connection(|connection| connection
+                    .query_row(
+                        "SELECT COUNT(*) FROM document_sources WHERE document_id = ?1 AND note_id = ?2",
+                        params![document.id, note.id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(|_| STORAGE_ERROR))
+                .unwrap(),
+            1
+        );
         assert_eq!(store.patient(patient.id).unwrap().document_count, 1);
+
+        store.delete_note(note.id).unwrap();
+        let revised = store
+            .update_document(
+                document.id,
+                "Revised after source deletion",
+                &body,
+                false,
+                false,
+            )
+            .unwrap();
+        assert_eq!(revised.revision, 3);
+        assert_eq!(
+            store
+                .with_connection(|connection| connection
+                    .query_row(
+                        "SELECT COUNT(*) FROM document_sources WHERE document_id = ?1 AND note_id IS NULL AND deleted_warning = 1",
+                        [document.id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(|_| STORAGE_ERROR))
+                .unwrap(),
+            1
+        );
 
         store.delete_patient(patient.id).unwrap();
         assert!(store.documents(patient.id).unwrap().is_empty());
@@ -2512,6 +2602,15 @@ mod signature_tests {
             )
             .unwrap();
         assert!(!store.clinician_profile().unwrap().has_signature);
+        store
+            .update_document(
+                document.id,
+                "Revised synthetic letter",
+                &DocumentBody::from_plain_text("Revised synthetic body"),
+                true,
+                true,
+            )
+            .unwrap();
         store
             .with_connection(|connection| {
                 let saved: Vec<u8> = connection

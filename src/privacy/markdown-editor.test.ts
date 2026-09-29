@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from "vitest";
-import { markdownEditor, renderMarkdown } from "./markdown-editor";
+import {
+  documentBodyToMarkdown,
+  markdownEditor,
+  markdownToDocumentBody,
+  renderMarkdown,
+} from "./markdown-editor";
 describe("local Markdown editor", () => {
   it("round trips headings, bold and lists through source and formatted views", () => {
     const change = vi.fn();
@@ -63,6 +68,35 @@ describe("local Markdown editor", () => {
     expect(editor.element.querySelector("img")).toBeNull();
     editor.destroy();
     editor.element.remove();
+  });
+  it("round trips the constrained saved-document format", () => {
+    const body = {
+      blocks: [
+        {
+          kind: "heading" as const,
+          runs: [{ text: "Summary", bold: false }],
+        },
+        {
+          kind: "paragraph" as const,
+          runs: [
+            { text: "Synthetic ", bold: false },
+            { text: "progress", bold: true },
+          ],
+        },
+        {
+          kind: "bulleted_list" as const,
+          runs: [{ text: "Continue review", bold: false }],
+        },
+      ],
+    };
+    const markdown = documentBodyToMarkdown(body);
+    expect(markdown).toContain("## Summary");
+    expect(markdown).toContain("**progress**");
+    expect(markdown).toContain("* Continue review");
+    expect(markdownToDocumentBody(markdown)).toEqual(body);
+    const editor = markdownEditor(markdown, () => {}, { document: true });
+    expect(editor.element.querySelector('[aria-label="Italic"]')).toBeNull();
+    editor.destroy();
   });
   it("renders HTML, images and URLs as inert text with no resource-bearing nodes", () => {
     const node = renderMarkdown(
