@@ -695,6 +695,18 @@ pre.pane {
 .settings-documents {
   max-width: var(--content-width);
 }
+.document-create-grid {
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.9fr) minmax(0, 1.6fr);
+  align-items: stretch;
+  gap: var(--space-8);
+}
+.document-custom-instructions {
+  grid-template-rows: auto minmax(14rem, 1fr) auto;
+}
+.document-custom-instructions textarea {
+  min-height: 0;
+}
 .choice-list {
   display: grid;
   gap: var(--space-2);
@@ -1027,9 +1039,13 @@ pre.pane {
 @media (max-width: 820px) {
   .editor-layout,
   .settings-section,
+  .document-create-grid,
   .submission-review-grid {
     grid-template-columns: 1fr;
     gap: var(--space-4);
+  }
+  .document-custom-instructions textarea {
+    min-height: 12rem;
   }
   .editor-layout .field {
     max-width: none;

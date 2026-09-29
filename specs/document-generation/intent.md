@@ -26,9 +26,10 @@ result, edits it, and saves or exports a reviewed document.
   changes explicitly and preserve signatures already saved with documents.
 - Restrict source selection to completed notes belonging to the document's
   patient and preserve their order.
-- Allow up to 4,000 characters of optional instructions for one document. Show
-  them separately from the reusable template during submission review and bind
-  them into the single-use payload digest.
+- Allow up to 4,000 characters of optional instructions for one document. Give
+  them a spacious right-hand editor beside the document details on wide screens.
+  Show them separately from the reusable template during submission review and
+  bind them into the single-use payload digest.
 - Build submissions from saved reviewed text and its review snapshot in the
   Rust core. Existing **Keep** decisions remain unchanged.
 - Exchange eligible replacement spans for request-specific tokens. Bind every

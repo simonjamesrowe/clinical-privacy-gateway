@@ -2726,102 +2726,112 @@ export class TextReviewPage {
           },
         },
         h(
-          "label",
-          { class: "field" },
-          h("span", {}, "Document title"),
-          h("input", {
-            id: "document-title",
-            value: this.documentDraft.title,
-            maxlength: "160",
-            oninput: (event: Event) => {
-              this.documentDraft.title = (
-                event.target as HTMLInputElement
-              ).value;
-              this.updateDocumentChoices();
-            },
-          }),
-        ),
-        h(
-          "label",
-          { class: "field" },
-          h("span", {}, "Template"),
+          "div",
+          { class: "document-create-grid" },
           h(
-            "select",
-            {
-              value: String(this.documentDraft.templateId),
-              onchange: (event: Event) => {
-                this.documentDraft.templateId = Number(
-                  (event.target as HTMLSelectElement).value,
-                );
-              },
-            },
-            ...this.templates.map((template) =>
-              h(
-                "option",
-                {
-                  value: String(template.id),
-                  selected: template.id === this.documentDraft.templateId,
+            "section",
+            { class: "form-stack", "aria-label": "Document details" },
+            h(
+              "label",
+              { class: "field" },
+              h("span", {}, "Document title"),
+              h("input", {
+                id: "document-title",
+                value: this.documentDraft.title,
+                maxlength: "160",
+                oninput: (event: Event) => {
+                  this.documentDraft.title = (
+                    event.target as HTMLInputElement
+                  ).value;
+                  this.updateDocumentChoices();
                 },
-                template.name,
+              }),
+            ),
+            h(
+              "label",
+              { class: "field" },
+              h("span", {}, "Template"),
+              h(
+                "select",
+                {
+                  value: String(this.documentDraft.templateId),
+                  onchange: (event: Event) => {
+                    this.documentDraft.templateId = Number(
+                      (event.target as HTMLSelectElement).value,
+                    );
+                  },
+                },
+                ...this.templates.map((template) =>
+                  h(
+                    "option",
+                    {
+                      value: String(template.id),
+                      selected: template.id === this.documentDraft.templateId,
+                    },
+                    template.name,
+                  ),
+                ),
               ),
             ),
+            h(
+              "label",
+              { class: "field" },
+              h("span", {}, "Model"),
+              modelSelect(
+                this.documentSettings?.models ?? [],
+                this.documentDraft.model,
+                "document-model",
+                (event) => {
+                  this.documentDraft.model = (
+                    event.target as HTMLSelectElement
+                  ).value;
+                  this.updateDocumentChoices();
+                },
+              ),
+              h(
+                "span",
+                { class: "hint", "data-model-prices": true },
+                this.documentModelPrices(),
+              ),
+              h(
+                "span",
+                { class: "hint", "data-model-hint": true },
+                this.documentDraft.model === this.documentSettings?.openaiModel
+                  ? "Using your Settings default. Changing this selection affects only this document."
+                  : "Override for this document only.",
+              ),
+            ),
+            h(
+              "p",
+              { class: "muted" },
+              "Estimated generation cost appears during submission review, before anything is sent.",
+            ),
           ),
-        ),
-        h(
-          "label",
-          { class: "field" },
-          h("span", {}, "Model"),
-          modelSelect(
-            this.documentSettings?.models ?? [],
-            this.documentDraft.model,
-            "document-model",
-            (event) => {
-              this.documentDraft.model = (
-                event.target as HTMLSelectElement
-              ).value;
-              this.updateDocumentChoices();
+          h(
+            "label",
+            {
+              class: "field field--wide document-custom-instructions",
             },
+            h("span", {}, "Additional instructions (optional)"),
+            h("textarea", {
+              id: "document-custom-instructions",
+              rows: 12,
+              maxlength: 4000,
+              placeholder:
+                "For example: Address the letter to the community team and focus on agreed next steps.",
+              value: this.documentDraft.customInstructions,
+              oninput: (event: Event) => {
+                this.documentDraft.customInstructions = (
+                  event.target as HTMLTextAreaElement
+                ).value;
+              },
+            }),
+            h(
+              "span",
+              { class: "hint" },
+              "Added to this document only. You will review it before anything is sent.",
+            ),
           ),
-          h(
-            "span",
-            { class: "hint", "data-model-prices": true },
-            this.documentModelPrices(),
-          ),
-          h(
-            "span",
-            { class: "hint", "data-model-hint": true },
-            this.documentDraft.model === this.documentSettings?.openaiModel
-              ? "Using your Settings default. Changing this selection affects only this document."
-              : "Override for this document only.",
-          ),
-        ),
-        h(
-          "label",
-          { class: "field field--wide" },
-          h("span", {}, "Additional instructions (optional)"),
-          h("textarea", {
-            id: "document-custom-instructions",
-            rows: 5,
-            maxlength: 4000,
-            placeholder:
-              "For example: Address the letter to the community team and focus on agreed next steps.",
-            value: this.documentDraft.customInstructions,
-            oninput: (event: Event) => {
-              this.documentDraft.customInstructions = (
-                event.target as HTMLTextAreaElement
-              ).value;
-            },
-          }),
-          h(
-            "span",
-            { class: "hint" },
-            "Added to this document only. You will review it before anything is sent.",
-          ),
-        ),
-        h(
-          "p",
-          { class: "muted" },
-          "Estimated generation cost appears during submission review, before anything is sent.",
         ),
         h(
           "fieldset",

@@ -136,7 +136,9 @@ note returns to that patient's Notes tab.
 - The document flow uses three explicit steps: **Choose notes**, **Review
   submission**, and **Review document**.
 - New documents can add optional instructions that apply only to that
-  generation. Submission review labels its two columns **Instructions** and
+  generation. Document details occupy the left pane and the full-height
+  additional-instructions field occupies the right pane, stacking at narrow
+  widths. Submission review labels its two columns **Instructions** and
   **Reviewed notes**, using standard section titles and muted supporting copy.
 - Submission and generated-document actions share one split action row: the
   back/regenerate action on the left and the primary save/send actions on the
