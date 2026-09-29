@@ -252,6 +252,7 @@ function newDocument(p) {
       <label class="field"><span>Document title</span><input value="GP progress letter" /></label>
       <label class="field"><span>Template</span><select><option>GP letter</option><option>Referral letter</option><option>Progress report</option></select></label>
       <label class="field"><span>Model</span><select><option>GPT-4.1 mini · Lower cost — US$0.40 in / US$1.60 out per 1M tokens</option><option>GPT-4.1 — US$2.00 in / US$8.00 out per 1M tokens</option></select><span class="hint">Using your Settings default. Changing this selection affects only this document.</span></label>
+      <label class="field field--wide"><span>Additional instructions (optional)</span><textarea placeholder="For example: Focus on agreed next steps."></textarea><span class="hint">Added to this document only. You will review it before anything is sent.</span></label>
       <p class="muted">Estimated generation cost appears during submission review, before anything is sent.</p>
       <fieldset class="choice-list"><legend class="section-title">Select notes</legend>${patientNotes.map((note, index) => `<label class="choice-row"><input type="checkbox" ${index < 2 ? "checked" : ""} /><span>${esc(note.title)}</span><span class="mono muted">${note.saved}</span></label>`).join("")}</fieldset>
       <p class="meta muted">2 notes selected · Ordered oldest first</p>

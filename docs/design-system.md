@@ -132,6 +132,9 @@ note returns to that patient's Notes tab.
 
 - The document flow uses three explicit steps: **Choose notes**, **Review
   submission**, and **Review document**.
+- New documents can add optional instructions that apply only to that
+  generation. Submission review labels its two columns **Instructions** and
+  **Reviewed notes**, using standard section titles and muted supporting copy.
 - The outgoing review names OpenAI, the configured model, destination and
   purpose. During network activity, the header says **Sending to OpenAI** rather
   than **Working locally**.

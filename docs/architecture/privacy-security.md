@@ -138,7 +138,9 @@ link to the document is cleared; clinical material and patient metadata do not.
 Template formatting is local ProseMirror editing with Markdown storage. The
 schema excludes images and links, Markdown HTML is disabled, and clipboard HTML
 is stripped before parsing. Source instructions still appear in the exact
-outgoing payload review. Signature capture uses a local canvas; the native
+outgoing payload review. Optional per-document instructions are bounded to
+4,000 characters and included in the single-use payload digest. Signature
+capture uses a local canvas; the native
 boundary decodes and validates bounded PNG pixels before encrypted persistence.
 Generated output is opened in the same constrained editor. PDF export loads a
 saved revision by opaque ID, renders its header and optional signature locally,

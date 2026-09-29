@@ -18,8 +18,8 @@ let settings: DocumentSettings = {
   role: "Clinician",
   qualifications: "Synthetic demonstration",
   letterHeader: "Harbour Clinical Service\n12 Example Street\nBristol BS1 1AA",
-  apiKeyConfigured: false,
-  clinicalSendingEnabled: false,
+  apiKeyConfigured: true,
+  clinicalSendingEnabled: true,
   hasSignature: false,
   signaturePng: null,
   openaiModel: "gpt-6-luna",
@@ -77,7 +77,17 @@ const bridge: PrivacyBridge = {
         ];
         break;
       case "search_notes":
-        result = [];
+        result = [
+          {
+            id: 31,
+            patientId: 7,
+            patientName: "Synthetic Client",
+            patientReference: "SYN-2048",
+            title: "Clinical review",
+            snippet: "[PERSON_1] attended a review in [LOCATION_1].",
+            createdAt: 1_790_000_000,
+          },
+        ];
         break;
       case "list_documents":
       case "list_patient_documents":
@@ -132,6 +142,33 @@ const bridge: PrivacyBridge = {
           knownCostNanos: 18_450_000,
           unknownCostAttempts: 0,
           latestCostNanos: 400_000,
+        };
+        break;
+      case "prepare_document_submission":
+        result = {
+          id: "synthetic-preparation",
+          documentId: 14,
+          model: String(args.model),
+          destination: "https://api.openai.com",
+          purpose: "Generate patient document",
+          instructions: `Create the requested document using only facts in the supplied reviewed notes. Do not invent missing details. Return only the document text.\n\nDocument prompt template:\n${templates[0].instructions}${args.customInstructions ? `\n\nAdditional instructions for this document:\n${String(args.customInstructions)}` : ""}`,
+          input:
+            '<reviewed-note index="1">\n⟪CV_synthetic_0001⟫ attended a review in ⟪CV_synthetic_0002⟫.\n</reviewed-note>',
+          sourceCount: 1,
+          reviewNotes: [
+            {
+              id: 31,
+              title: "Clinical review",
+              reviewedText:
+                "[PERSON_1] attended a review in [LOCATION_1]. Progress and agreed next steps were discussed.",
+              createdAt: 1_790_000_000,
+            },
+          ],
+          estimate: {
+            inputTokenAllowance: 500,
+            outputTokenAllowance: 4096,
+            costNanos: 2_182_625,
+          },
         };
         break;
       case "save_document_settings": {

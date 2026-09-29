@@ -175,6 +175,7 @@ const APPLICATION_INSTRUCTIONS: &str = "Create the requested document using only
 pub fn prepare_submission(
     preparation_id: &str,
     template: &DocumentTemplate,
+    custom_instructions: &str,
     model: &str,
     notes: &[SubmissionNote<'_>],
 ) -> PrivacyResult<PreparedSubmission> {
@@ -195,6 +196,19 @@ pub fn prepare_submission(
         return Err("Select at least one completed note.");
     }
     validate_template_text(&template.instructions)?;
+    let custom_instructions = custom_instructions.trim();
+    if custom_instructions.chars().count() > 4_000 {
+        return Err("Use at most 4,000 characters for additional instructions.");
+    }
+
+    let mut instructions = format!(
+        "{APPLICATION_INSTRUCTIONS}\n\nDocument prompt template:\n{}",
+        template.instructions.trim()
+    );
+    if !custom_instructions.is_empty() {
+        instructions.push_str("\n\nAdditional instructions for this document:\n");
+        instructions.push_str(custom_instructions);
+    }
 
     let mut restorations = Vec::new();
     let mut prepared_notes = Vec::with_capacity(notes.len());
@@ -210,7 +224,7 @@ pub fn prepare_submission(
                 continue;
             }
             let token = format!("⟪CV_{}_{:04}⟫", preparation_id, restorations.len() + 1);
-            if text.contains(&token) || template.instructions.contains(&token) {
+            if text.contains(&token) || instructions.contains(&token) {
                 return Err("The document submission could not be prepared.");
             }
             text.replace_range(item.output_start..item.output_end, &token);
@@ -225,10 +239,6 @@ pub fn prepare_submission(
     }
     restorations.reverse();
 
-    let instructions = format!(
-        "{APPLICATION_INSTRUCTIONS}\n\nDocument prompt template:\n{}",
-        template.instructions.trim()
-    );
     let input = prepared_notes
         .iter()
         .enumerate()
@@ -402,6 +412,7 @@ mod tests {
         let prepared = prepare_submission(
             "nonce9",
             &template(),
+            "",
             "configured-model",
             &[SubmissionNote {
                 id: 7,
@@ -419,6 +430,45 @@ mod tests {
         assert!(prepared.input.contains("SYN-44"));
         assert!(!prepared.input.contains("Zoë"));
         assert!(!prepared.input.contains("Ana"));
+    }
+
+    #[test]
+    fn additional_instructions_are_bounded_and_bound_to_the_reviewed_payload() {
+        let (reviewed, provenance) = saved_note("Synthetic review.", &[]);
+        let note = SubmissionNote {
+            id: 9,
+            revision: 1,
+            reviewed_text: &reviewed,
+            provenance: &provenance,
+        };
+        let without = prepare_submission(
+            "nonce6",
+            &template(),
+            "",
+            "configured-model",
+            std::slice::from_ref(&note),
+        )
+        .unwrap();
+        let with = prepare_submission(
+            "nonce7",
+            &template(),
+            "Address the letter to the community team.",
+            "configured-model",
+            std::slice::from_ref(&note),
+        )
+        .unwrap();
+        assert!(with
+            .instructions
+            .contains("Additional instructions for this document:\nAddress the letter"));
+        assert_ne!(without.payload_digest, with.payload_digest);
+        assert!(prepare_submission(
+            "nonce8",
+            &template(),
+            &"x".repeat(4_001),
+            "configured-model",
+            &[note],
+        )
+        .is_err());
     }
 
     #[test]
@@ -440,6 +490,7 @@ mod tests {
         let prepared = prepare_submission(
             "nonce8",
             &template(),
+            "",
             "configured-model",
             &[SubmissionNote {
                 id: 8,

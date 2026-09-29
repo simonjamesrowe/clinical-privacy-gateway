@@ -949,6 +949,7 @@ pub fn prepare_document_submission(
     note_ids: Vec<i64>,
     model: String,
     title: String,
+    custom_instructions: String,
     document_id: Option<i64>,
 ) -> PrivacyResult<PreparedSubmissionView> {
     let review = state.storage()?.prepare_document_submission(
@@ -957,6 +958,7 @@ pub fn prepare_document_submission(
         &note_ids,
         &model,
         &title,
+        &custom_instructions,
         document_id,
     )?;
     let prepared = review.prepared;

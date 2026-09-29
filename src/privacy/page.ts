@@ -218,6 +218,7 @@ export class TextReviewPage {
     title: "",
     templateId: 0,
     model: "",
+    customInstructions: "",
     noteIds: new Set<number>(),
   };
   private redactionQuery = "";
@@ -622,6 +623,7 @@ export class TextReviewPage {
         title: "",
         templateId: 0,
         model: "",
+        customInstructions: "",
         noteIds: new Set(),
       };
       this.preparedDocument = null;
@@ -2794,6 +2796,29 @@ export class TextReviewPage {
           ),
         ),
         h(
+          "label",
+          { class: "field field--wide" },
+          h("span", {}, "Additional instructions (optional)"),
+          h("textarea", {
+            id: "document-custom-instructions",
+            rows: 5,
+            maxlength: 4000,
+            placeholder:
+              "For example: Address the letter to the community team and focus on agreed next steps.",
+            value: this.documentDraft.customInstructions,
+            oninput: (event: Event) => {
+              this.documentDraft.customInstructions = (
+                event.target as HTMLTextAreaElement
+              ).value;
+            },
+          }),
+          h(
+            "span",
+            { class: "hint" },
+            "Added to this document only. You will review it before anything is sent.",
+          ),
+        ),
+        h(
           "p",
           { class: "muted" },
           "Estimated generation cost appears during submission review, before anything is sent.",
@@ -2907,6 +2932,7 @@ export class TextReviewPage {
           noteIds: [...this.documentDraft.noteIds],
           model: this.documentDraft.model,
           title: this.documentDraft.title,
+          customInstructions: this.documentDraft.customInstructions,
           documentId: this.documentId,
         },
       ),
@@ -3047,17 +3073,24 @@ export class TextReviewPage {
               h(
                 "section",
                 {
-                  class: "submission-review-panel",
+                  class: "submission-review-section",
                   "aria-labelledby": "submission-instructions-title",
                 },
                 h(
                   "header",
-                  { class: "submission-review-panel__header" },
-                  h("p", { class: "eyebrow" }, "Document prompt template"),
+                  { class: "submission-review-section__header" },
                   h(
                     "h2",
-                    { id: "submission-instructions-title" },
-                    "Instructions to OpenAI",
+                    {
+                      id: "submission-instructions-title",
+                      class: "section-title",
+                    },
+                    "Instructions",
+                  ),
+                  h(
+                    "p",
+                    { class: "muted" },
+                    "The template and any instructions added for this document.",
                   ),
                 ),
                 this.submissionInstructions(prepared.instructions),
@@ -3065,17 +3098,21 @@ export class TextReviewPage {
               h(
                 "section",
                 {
-                  class: "submission-review-panel",
+                  class: "submission-review-section",
                   "aria-labelledby": "submission-notes-title",
                 },
                 h(
                   "header",
-                  { class: "submission-review-panel__header" },
-                  h("p", { class: "eyebrow" }, "Reviewed source material"),
+                  { class: "submission-review-section__header" },
                   h(
                     "h2",
-                    { id: "submission-notes-title" },
-                    `${plural(prepared.reviewNotes.length, "note")} to OpenAI`,
+                    { id: "submission-notes-title", class: "section-title" },
+                    "Reviewed notes",
+                  ),
+                  h(
+                    "p",
+                    { class: "muted" },
+                    `${plural(prepared.reviewNotes.length, "note")} selected · Ordered oldest first`,
                   ),
                 ),
                 h(
@@ -3091,7 +3128,12 @@ export class TextReviewPage {
                       h(
                         "header",
                         { class: "submission-note__header" },
-                        h("h3", {}, `${index + 1}. ${note.title}`),
+                        h(
+                          "div",
+                          {},
+                          h("p", { class: "meta muted" }, `Note ${index + 1}`),
+                          h("h3", {}, note.title),
+                        ),
                         h(
                           "span",
                           { class: "mono muted" },
@@ -3152,18 +3194,25 @@ export class TextReviewPage {
   }
 
   private submissionInstructions(instructions: string): HTMLElement {
-    const marker = "\n\nDocument prompt template:\n";
-    const markerAt = instructions.indexOf(marker);
-    if (markerAt < 0) return renderMarkdown(instructions);
-    const rules = instructions.slice(0, markerAt);
-    const template = instructions.slice(markerAt + marker.length);
+    const templateMarker = "\n\nDocument prompt template:\n";
+    const customMarker = "\n\nAdditional instructions for this document:\n";
+    const templateAt = instructions.indexOf(templateMarker);
+    if (templateAt < 0) return renderMarkdown(instructions);
+    const rules = instructions.slice(0, templateAt);
+    const remaining = instructions.slice(templateAt + templateMarker.length);
+    const customAt = remaining.indexOf(customMarker);
+    const template = customAt < 0 ? remaining : remaining.slice(0, customAt);
+    const custom =
+      customAt < 0 ? "" : remaining.slice(customAt + customMarker.length);
     return h(
       "div",
       { class: "submission-instructions" },
-      h("h3", {}, "Generation rules"),
+      h("h3", {}, "Safety rules"),
       h("p", {}, rules),
-      h("h3", {}, "Template instructions"),
+      h("h3", {}, "Template"),
       renderMarkdown(template),
+      custom && h("h3", {}, "Additional instructions"),
+      custom && renderMarkdown(custom),
     );
   }
 

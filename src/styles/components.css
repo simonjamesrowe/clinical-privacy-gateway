@@ -887,34 +887,30 @@ pre.pane {
 }
 .submission-review-grid {
   display: grid;
-  grid-template-columns: minmax(18rem, 0.9fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(18rem, 0.95fr) minmax(0, 1.2fr);
   align-items: start;
   gap: var(--space-6);
 }
-.submission-review-panel {
+.submission-review-section {
   min-width: 0;
-  overflow: hidden;
+}
+.submission-review-section__header {
+  margin-bottom: var(--space-3);
+}
+.submission-review-section__header p {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+}
+.submission-instructions {
+  padding: var(--space-4);
   border: 1px solid var(--color-line);
   border-radius: var(--radius);
   background: var(--color-surface-raised);
-}
-.submission-review-panel__header {
-  padding: var(--space-5) var(--space-6);
-  border-bottom: 1px solid var(--color-line);
-  background: var(--color-surface);
-}
-.submission-review-panel__header h2 {
-  margin-top: var(--space-1);
-}
-.submission-instructions {
-  padding: var(--space-6);
-  font: var(--text-md)/1.7 var(--font-body);
+  font: var(--text-md) / 1.65 var(--font-body);
 }
 .submission-instructions h3 {
   margin: var(--space-6) 0 var(--space-2);
-  font: 600 var(--text-sm)/1.4 var(--font-mono);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font: 600 var(--text-md) / 1.4 var(--font-body);
 }
 .submission-instructions h3:first-child {
   margin-top: 0;
@@ -922,7 +918,7 @@ pre.pane {
 .submission-instructions .formatted-text h1,
 .submission-instructions .formatted-text h2,
 .submission-instructions .formatted-text h3 {
-  margin: var(--space-5) 0 var(--space-2);
+  margin: var(--space-4) 0 var(--space-2);
   font: 600 var(--text-lg)/1.4 var(--font-body);
   letter-spacing: normal;
   text-transform: none;
@@ -930,13 +926,12 @@ pre.pane {
 .submission-notes {
   display: grid;
   gap: var(--space-4);
-  padding: var(--space-4);
 }
 .submission-note {
-  padding: var(--space-5);
+  padding: var(--space-4);
   border: 1px solid var(--color-line);
   border-radius: var(--radius);
-  background: var(--color-surface);
+  background: var(--color-surface-raised);
 }
 .submission-note__header {
   display: flex;
@@ -947,6 +942,7 @@ pre.pane {
   border-bottom: 1px solid var(--color-line);
 }
 .submission-note__header h3 {
+  margin-top: var(--space-1);
   font: 600 var(--text-md)/1.4 var(--font-body);
 }
 .submission-note__text {
@@ -958,7 +954,7 @@ pre.pane {
   margin-top: var(--space-4);
 }
 .submission-payload {
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-4);
   border: 1px solid var(--color-line);
   border-radius: var(--radius);
   background: var(--color-surface);

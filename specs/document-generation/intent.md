@@ -26,6 +26,9 @@ result, edits it, and saves or exports a reviewed document.
   changes explicitly and preserve signatures already saved with documents.
 - Restrict source selection to completed notes belonging to the document's
   patient and preserve their order.
+- Allow up to 4,000 characters of optional instructions for one document. Show
+  them separately from the reusable template during submission review and bind
+  them into the single-use payload digest.
 - Build submissions from saved reviewed text and its review snapshot in the
   Rust core. Existing **Keep** decisions remain unchanged.
 - Exchange eligible replacement spans for request-specific tokens. Bind every
@@ -39,10 +42,12 @@ result, edits it, and saves or exports a reviewed document.
   counts. A reservation becomes a visible editable draft only when the
   clinician explicitly saves generated text; existing empty reservations are
   hidden during the additive schema migration.
-- Present the prompt-template instructions as formatted text beside individual
-  reviewed note cards. Show saved redaction labels in the primary note review,
-  with the exact request-specific token payload available in a collapsed audit
-  view before the explicit send action.
+- Present the template and per-document instructions as formatted text beside
+  individual reviewed note cards. Use the same quiet section-heading hierarchy
+  as the rest of the app rather than provider-oriented card titles. Show saved
+  redaction labels in the primary note review, with the exact request-specific
+  token payload available in a collapsed audit view before the explicit send
+  action.
 - Present restored generated text in the same constrained rich-text editor used
   for templates and saved documents, so headings, emphasis and lists are visible
   before the clinician saves or exports the draft.

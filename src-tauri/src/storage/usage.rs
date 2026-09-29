@@ -334,6 +334,7 @@ mod tests {
                 &[999],
                 DEFAULT_DOCUMENT_MODEL,
                 "Synthetic title",
+                "",
                 None
             )
             .is_err());

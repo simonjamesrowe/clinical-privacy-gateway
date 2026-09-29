@@ -1935,7 +1935,7 @@ describe("document model selection and usage", () => {
         destination: "https://api.openai.com",
         purpose: "Generate document",
         instructions:
-          "Use only supplied notes.\n\nDocument prompt template:\n## Letter\nUse **British English**.",
+          "Use only supplied notes.\n\nDocument prompt template:\n## Letter\nUse **British English**.\n\nAdditional instructions for this document:\nFocus on **agreed next steps**.",
         input: "⟪CV_synthetic_0001⟫ attended.",
         sourceCount: 1,
         reviewNotes: [
@@ -1959,7 +1959,14 @@ describe("document model selection and usage", () => {
     await newDocument();
     select("#document-model", models[1].id);
     chooseNotes();
+    type("#document-custom-instructions", "Focus on **agreed next steps**.");
     await click("[data-review-submission]");
+    expect(call).toHaveBeenCalledWith(
+      "prepare_document_submission",
+      expect.objectContaining({
+        customInstructions: "Focus on **agreed next steps**.",
+      }),
+    );
     expect(root.textContent).toContain(
       "Estimated generation allowance: US$0.032968",
     );
@@ -1974,6 +1981,10 @@ describe("document model selection and usage", () => {
     expect(
       root.querySelector(".submission-instructions strong")?.textContent,
     ).toBe("British English");
+    expect(root.textContent).toContain("Additional instructions");
+    expect(root.textContent).toContain("agreed next steps");
+    expect(root.textContent).not.toContain("Instructions to OpenAI");
+    expect(root.textContent).not.toContain("1 note to OpenAI");
     expect(
       root.querySelector(".submission-payload pre:last-child")?.textContent,
     ).toContain("CV_synthetic_0001");

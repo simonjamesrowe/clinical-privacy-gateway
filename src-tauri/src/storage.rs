@@ -1300,6 +1300,7 @@ impl Storage {
         note_ids: &[i64],
         model: &str,
         title: &str,
+        custom_instructions: &str,
         document_id: Option<i64>,
     ) -> PrivacyResult<PreparedSubmissionReview> {
         let profile = self.clinician_profile()?;
@@ -1352,6 +1353,7 @@ impl Storage {
         let prepared = clinicians_veil_core::document_generation::prepare_submission(
             &hex(&nonce),
             &template,
+            custom_instructions,
             model,
             &notes,
         )?;
