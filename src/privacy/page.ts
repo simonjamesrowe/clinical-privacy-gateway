@@ -63,19 +63,25 @@ type Work =
 type Tab = "details" | "notes" | "documents" | "redactions";
 export type WorkspaceScreen =
   | "patients"
+  | "patient-new"
   | "notes"
+  | "note-patient"
   | "documents"
   | "document-patient"
   | "redactions"
   | "templates"
   | "settings";
-type Section = Exclude<WorkspaceScreen, "document-patient">;
+type Section = Exclude<
+  WorkspaceScreen,
+  "patient-new" | "note-patient" | "document-patient"
+>;
 type Route =
   | { name: "patients" }
   | { name: "patient-new" }
   | { name: "patient"; patientId: number; tab: Tab }
   | { name: "document-new"; patientId: number }
   | { name: "document-patient" }
+  | { name: "note-patient" }
   | { name: "documents" }
   | { name: "review" }
   | { name: "notes" }
@@ -333,10 +339,12 @@ export class TextReviewPage {
           : this.patientsScreen();
       case "notes":
         return this.notesScreen();
+      case "note-patient":
+        return this.patientChooserScreen("note");
       case "documents":
         return this.documentsScreen();
       case "document-patient":
-        return this.documentPatientScreen();
+        return this.patientChooserScreen("document");
       case "redactions":
         return this.redactionsScreen();
       case "templates":
@@ -355,9 +363,11 @@ export class TextReviewPage {
       name === "templates" ||
       name === "settings"
       ? name
-      : name === "document-patient" || name === "document-new"
-        ? "documents"
-        : "patients";
+      : name === "note-patient"
+        ? "notes"
+        : name === "document-patient" || name === "document-new"
+          ? "documents"
+          : "patients";
   }
   private header(): HTMLElement {
     const current = this.section();
@@ -694,7 +704,8 @@ export class TextReviewPage {
         this.documentDraft.model = result.settings.openaiModel;
         return;
       }
-      case "document-patient": {
+      case "document-patient":
+      case "note-patient": {
         const result = await this.perform("Loading patients…", () =>
           call<PatientView[]>("list_patients"),
         );
@@ -1465,13 +1476,25 @@ export class TextReviewPage {
     return [this.notesTable(patient.noteCount, false)];
   }
   private notesScreen(): Node[] {
+    const create = () =>
+      h(
+        "button",
+        {
+          type: "button",
+          class: "button button--primary",
+          "data-new-note": true,
+          onclick: () => void this.navigate({ name: "note-patient" }),
+        },
+        "New note",
+      );
     return [
       pageHeader({
         eyebrow: "Encrypted library",
         title: ["Notes"],
         id: "notes-title",
         description:
-          "Reviewed notes for every patient. Open a patient to start a new note.",
+          "Reviewed notes for every patient. Start a note by choosing its patient.",
+        actions: [create()],
       }),
       this.errorNotice(),
       this.flashNotice(),
@@ -1482,6 +1505,7 @@ export class TextReviewPage {
           ? emptyState(
               "No notes yet",
               "Open a patient and start a note. Saved notes appear here.",
+              create(),
             )
           : this.notesTable(undefined, true),
       ),
@@ -2125,38 +2149,62 @@ export class TextReviewPage {
     ].filter((node): node is HTMLElement => node !== null);
   }
 
-  private documentPatientScreen(): Node[] {
+  private patientChooserScreen(kind: "note" | "document"): Node[] {
+    const document = kind === "document";
+    const noun = document ? "document" : "note";
+    const section = document ? "Documents" : "Notes";
     const query = this.patientQuery.toLowerCase();
     const patients = this.patients.filter((patient) =>
       `${patient.name} ${patient.patientReference ?? ""}`
         .toLowerCase()
         .includes(query),
     );
-    const select = (patient: PatientView) =>
-      void this.navigate({ name: "document-new", patientId: patient.id });
+    const select = (patient: PatientView) => {
+      if (document)
+        void this.navigate({ name: "document-new", patientId: patient.id });
+      else this.startNote(patient);
+    };
+    const addPatient = () =>
+      h(
+        "button",
+        {
+          type: "button",
+          class: "button",
+          "data-new-patient": true,
+          onclick: () => void this.navigate({ name: "patient-new" }),
+        },
+        "New patient",
+      );
     return [
       breadcrumb([
         {
-          label: "Documents",
-          onSelect: () => void this.navigate({ name: "documents" }),
+          label: section,
+          onSelect: () =>
+            void this.navigate({ name: document ? "documents" : "notes" }),
         },
-        { label: "New document" },
+        { label: `New ${noun}` },
       ]),
       pageHeader({
-        eyebrow: "Patient document",
-        title: ["New document"],
-        id: "document-patient-title",
-        description: "Choose the patient whose reviewed notes you want to use.",
+        eyebrow: document ? "Patient document" : "Patient note",
+        title: [`New ${noun}`],
+        id: `${noun}-patient-title`,
+        description: document
+          ? "Choose the patient whose reviewed notes you want to use."
+          : "Choose the patient whose note you want to create.",
+        actions: [addPatient()],
       }),
       this.errorNotice(),
       !this.patients.length
         ? emptyState(
             "No patients yet",
-            "Add a patient and complete a reviewed note before creating a document.",
+            document
+              ? "Add a patient and complete a reviewed note before creating a document."
+              : "Add a patient before creating a note.",
+            addPatient(),
           )
         : h(
             "section",
-            { "data-document-patients": true },
+            { [`data-${noun}-patients`]: true },
             toolbar(
               searchForm({
                 label: "Search patients",
@@ -2204,7 +2252,7 @@ export class TextReviewPage {
                           {
                             type: "button",
                             class: "row-open",
-                            "data-choose-document-patient": patient.id,
+                            [`data-choose-${noun}-patient`]: patient.id,
                             onclick: () => select(patient),
                           },
                           patient.name,

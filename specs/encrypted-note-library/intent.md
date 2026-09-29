@@ -31,6 +31,9 @@ Transcription/audio support remains planned.
   modal dialogs.
 - A patient's name and patient number can be edited on their Details tab.
   Notes, search entries, and redactions stay attached through the patient.
+- The all-patients Notes library exposes **New note**. It first opens the same
+  searchable patient chooser used by the welcome action; that chooser also
+  provides **New patient** when the required patient does not yet exist.
 - Saved redactions are created only while reviewing a note. The Redactions
   screens can change a redaction's replacement but cannot add or delete one.
   Patient redactions are deleted with their patient; all-patients redactions

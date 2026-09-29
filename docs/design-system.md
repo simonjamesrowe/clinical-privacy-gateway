@@ -26,12 +26,13 @@ content in the library and screens.
 ## Information architecture
 
 ```text
-Welcome (unchanged)
-  ├─ New note  → Patients (choose one)
-  ├─ Patients
-  └─ Notes
+Welcome
+  ├─ New patient  → patient form
+  ├─ New note     → searchable patient chooser
+  ├─ New document → searchable patient chooser
+  └─ Patients · Notes · Documents · Redactions · Document prompt templates · Settings
 
-App header: [mark] Clinician’s Veil   Patients  Notes  Redactions  Document prompt templates  Settings   ● On this Mac
+App header: [mark] Clinician’s Veil   Patients  Notes  Documents  Redactions  Document prompt templates  Settings   ● On this Mac
 
 Patients                      searchable table
   New patient                 page form
@@ -41,7 +42,7 @@ Patients                      searchable table
     Documents                 saved drafts/reviewed documents; new-document flow
     Redactions                patient redactions table
     New note / open note      review workspace
-Notes (all patients)          searchable table with Patient column
+Notes (all patients)          searchable table with Patient column; New note
 Redactions (all patients)     all-patients redactions table
 Document prompt templates     create, edit, duplicate, archive, restore
 Settings                      local model, OpenAI configuration, clinician details/signature

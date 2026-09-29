@@ -43,8 +43,8 @@ function render(): void {
         <p class="eyebrow">A local-first workspace</p>
         <h1 id="welcome-heading">Welcome to<br /><em>Clinician’s Veil.</em></h1>
         <p class="welcome__description">Start clinical work or return to your encrypted patient, note and document libraries.</p>
-        <div class="welcome-actions" aria-label="Start work"><button type="button" class="welcome-start" data-new-note>New note →</button><button type="button" class="welcome-start" data-new-document>New document →</button></div>
-        <div class="welcome-links" aria-label="Open workspace"><button type="button" class="welcome-start welcome-start--secondary" data-open-patients>Patients</button><button type="button" class="welcome-start welcome-start--secondary" data-open-notes>Notes</button><button type="button" class="welcome-start welcome-start--secondary" data-open-documents>Documents</button><button type="button" class="welcome-start welcome-start--secondary" data-open-templates>Prompt templates</button><button type="button" class="welcome-start welcome-start--secondary" data-open-settings>Settings</button></div>
+        <div class="welcome-actions" aria-label="Start work"><button type="button" class="welcome-start" data-new-patient>New patient →</button><button type="button" class="welcome-start" data-new-note>New note →</button><button type="button" class="welcome-start" data-new-document>New document →</button></div>
+        <nav class="primary-nav welcome-nav" aria-label="Application"><button type="button" data-open-patients>Patients</button><button type="button" data-open-notes>Notes</button><button type="button" data-open-documents>Documents</button><button type="button" data-open-redactions>Redactions</button><button type="button" data-open-templates>Document prompt templates</button><button type="button" data-open-settings>Settings</button></nav>
       </div>
       <footer class="welcome__footer">
         <span>${aboutBuildLine(buildInfo)}</span>
@@ -84,8 +84,11 @@ function render(): void {
     .querySelector<HTMLButtonElement>("[data-open-patients]")
     ?.addEventListener("click", () => openWorkspace("patients"));
   app
+    .querySelector<HTMLButtonElement>("[data-new-patient]")
+    ?.addEventListener("click", () => openWorkspace("patient-new"));
+  app
     .querySelector<HTMLButtonElement>("[data-new-note]")
-    ?.addEventListener("click", () => openWorkspace("patients"));
+    ?.addEventListener("click", () => openWorkspace("note-patient"));
   app
     .querySelector<HTMLButtonElement>("[data-open-notes]")
     ?.addEventListener("click", () => openWorkspace("notes"));
@@ -95,6 +98,9 @@ function render(): void {
   app
     .querySelector<HTMLButtonElement>("[data-open-documents]")
     ?.addEventListener("click", () => openWorkspace("documents"));
+  app
+    .querySelector<HTMLButtonElement>("[data-open-redactions]")
+    ?.addEventListener("click", () => openWorkspace("redactions"));
   app
     .querySelector<HTMLButtonElement>("[data-open-templates]")
     ?.addEventListener("click", () => openWorkspace("templates"));

@@ -36,21 +36,15 @@ button {
   cursor: pointer;
 }
 
-.welcome-actions,
-.welcome-links {
+.welcome-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
 }
 
-.welcome-links {
+.welcome-nav {
+  flex-wrap: wrap;
   margin-top: var(--space-3);
-}
-
-.welcome-start--secondary {
-  border-color: #9ab1aa;
-  background: transparent;
-  color: #155c5c;
 }
 
 .welcome {

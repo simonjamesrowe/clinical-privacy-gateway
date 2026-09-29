@@ -351,6 +351,22 @@ describe("text review", () => {
     );
   });
 
+  it("starts a new note from the all-notes page after choosing a patient", async () => {
+    mockLibrary();
+    await mount(true, "notes");
+    expect(button("[data-new-note]").textContent).toBe("New note");
+    await click("[data-new-note]");
+    expect(root.querySelector("#note-patient-title")?.textContent).toBe(
+      "New note",
+    );
+    expect(root.querySelector("[data-new-patient]")).not.toBeNull();
+    await click('[data-choose-note-patient="7"]');
+    expect(root.querySelector("#review-title")?.textContent).toBe(
+      "De-identify text",
+    );
+    expect(root.textContent).toContain("New note · Synthetic Client");
+  });
+
   it("starts a new note from a patient and includes that patient in detection", async () => {
     call.mockImplementation(async (command: string) => {
       if (command === "model_status")
