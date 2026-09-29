@@ -81,8 +81,8 @@ content-free messages; progress events carry only stage/count/operation metadata
   for ordinary check-on-save work to reduce cache invalidation and memory use.
 - Evaluate a faster linker in `.cargo/config.toml` when the codebase is
   scaffolded; keep platform-specific configuration documented.
-- Build locally with ad-hoc signing for this single-machine tool. GitHub Actions
-  validates pull requests and, after every successful push to `main`, updates a
+- GitHub Actions validates pull requests and, after every successful push to
+  `main`, updates a
   rolling `main-latest` prerelease with an arm64 DMG containing an ad-hoc-signed
   app. Tauri signs the completed bundle using `signingIdentity: "-"`, not just
   the executable's automatic linker signature. Both PR and release workflows
@@ -93,6 +93,12 @@ content-free messages; progress events carry only stage/count/operation metadata
   and workflow artifact are the distribution point for the target M2 Mac. The user must
   explicitly complete macOS’s Gatekeeper flow on first launch; Developer ID
   signing and notarisation remain deferred until broader distribution is required.
+- Repeated local test builds use `npm run tauri:local-dmg`, which creates a
+  device-local code-signing identity outside the repository and reuses it for
+  subsequent DMGs. This keeps the app's designated requirement stable so macOS
+  Keychain can remember an explicit “Always Allow” decision across rebuilds.
+  The identity is trusted only for code signing and never leaves that Mac. CI
+  remains ad-hoc signed until Developer ID signing is configured.
 
 ## Document adapters
 

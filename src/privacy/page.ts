@@ -263,8 +263,6 @@ export class TextReviewPage {
       }
       this.unsubscribe = unsubscribe;
       this.model = await this.bridge.call<ModelStatus>("model_status");
-      this.documentSettings =
-        await this.bridge.call<DocumentSettings>("document_settings");
     } catch {
       this.error = "Model status is unavailable. Reopen this page to retry.";
     }
@@ -823,6 +821,7 @@ export class TextReviewPage {
           this.documentSettings = result.settings;
           this.usage = result.usage;
           this.settingsDraft = null;
+          this.root.querySelector("[data-document-settings]")?.remove();
           this.signatureDraft = emptySignatureDraft();
         }
         return;

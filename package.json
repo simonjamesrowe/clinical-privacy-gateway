@@ -10,7 +10,8 @@
     "lint": "eslint . --max-warnings=0",
     "format:check": "prettier --check package.json package-lock.json tsconfig.json vite.config.ts eslint.config.js index.html src design-system scripts .github/workflows src-tauri/tauri.conf.json src-tauri/capabilities",
     "test": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:local-dmg": "bash scripts/build-local-dmg.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.0",

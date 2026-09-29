@@ -240,6 +240,16 @@ async function submit(selector: string) {
 }
 
 describe("text review", () => {
+  it("does not read document credentials when opening the notes library", async () => {
+    await mount(true, "notes");
+
+    expect(call).toHaveBeenCalledWith("model_status", undefined);
+    expect(call).toHaveBeenCalledWith("search_notes", { query: "" });
+    expect(
+      call.mock.calls.some(([command]) => command === "document_settings"),
+    ).toBe(false);
+  });
+
   it("shows document prompt templates and their maintenance actions", async () => {
     mockLibrary({
       list_document_templates: [
@@ -1965,6 +1975,12 @@ describe("template editing and settings sections", () => {
     });
     await mount(true, "patients");
     await click('[data-route="settings"]');
+    expect(
+      root.querySelector<HTMLInputElement>('input[name="apiKey"]')?.placeholder,
+    ).toBe("Enter a replacement key");
+    expect(
+      root.querySelector<HTMLSelectElement>('select[name="model"]')?.value,
+    ).toBe(models[0].id);
     const confirmations = [
       ...root.querySelectorAll<HTMLInputElement>("[data-governance-check]"),
     ];
