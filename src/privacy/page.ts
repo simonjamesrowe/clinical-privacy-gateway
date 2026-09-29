@@ -3031,26 +3031,39 @@ export class TextReviewPage {
             ),
             h(
               "div",
-              { class: "form-actions" },
+              { class: "form-actions form-actions--split" },
               h(
                 "button",
                 {
                   type: "button",
                   class: "button",
-                  "data-save-generated": true,
-                  onclick: () => void this.saveGeneratedDraft(false),
+                  onclick: () => this.requestLeave("regenerate"),
                 },
-                "Save draft",
+                "Prepare another generation",
               ),
               h(
-                "button",
-                {
-                  type: "button",
-                  class: "button button--primary",
-                  "data-export-generated": true,
-                  onclick: () => void this.saveGeneratedDraft(true),
-                },
-                "Save draft & export PDF",
+                "div",
+                { class: "page-actions" },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "button",
+                    "data-save-generated": true,
+                    onclick: () => void this.saveGeneratedDraft(false),
+                  },
+                  "Save draft",
+                ),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "button button--primary",
+                    "data-export-generated": true,
+                    onclick: () => void this.saveGeneratedDraft(true),
+                  },
+                  "Save draft & export PDF",
+                ),
               ),
             ),
           )
@@ -3165,31 +3178,32 @@ export class TextReviewPage {
               h("pre", { class: "pane" }, prepared.input),
             ),
             h(
-              "button",
-              {
-                type: "button",
-                class: "button button--primary",
-                "data-send-document": true,
-                onclick: () => void this.generateDocument(),
-              },
-              "Send to OpenAI and generate",
+              "div",
+              { class: "form-actions form-actions--split" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button",
+                  onclick: () => {
+                    this.preparedDocument = null;
+                    this.render();
+                  },
+                },
+                "Change selection",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button button--primary",
+                  "data-send-document": true,
+                  onclick: () => void this.generateDocument(),
+                },
+                "Send to OpenAI and generate",
+              ),
             ),
           ),
-      h(
-        "button",
-        {
-          type: "button",
-          class: "button",
-          onclick: () => {
-            if (generated) this.requestLeave("regenerate");
-            else {
-              this.preparedDocument = null;
-              this.render();
-            }
-          },
-        },
-        generated ? "Prepare another generation" : "Change selection",
-      ),
     ].filter((node): node is HTMLElement => node !== null);
   }
 

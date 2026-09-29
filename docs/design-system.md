@@ -104,6 +104,9 @@ note returns to that patient's Notes tab.
 - A new component goes into `src/styles/components.css` and
   `src/privacy/components.ts`, and gets a specimen in the library, with its
   rules, in the same change.
+- Component specimens keep headings, rules, demos and related links in
+  separately padded regions. Related-link footers use muted small text with a
+  readable line length rather than running against the card edge.
 - Screens build DOM with `h()` from `src/privacy/dom.ts`, which turns every
   string into a text node. Patient names, titles, and clinical text never pass
   through `innerHTML`.
@@ -135,6 +138,9 @@ note returns to that patient's Notes tab.
 - New documents can add optional instructions that apply only to that
   generation. Submission review labels its two columns **Instructions** and
   **Reviewed notes**, using standard section titles and muted supporting copy.
+- Submission and generated-document actions share one split action row: the
+  back/regenerate action on the left and the primary save/send actions on the
+  right, stacking at narrow widths.
 - The outgoing review names OpenAI, the configured model, destination and
   purpose. During network activity, the header says **Sending to OpenAI** rather
   than **Working locally**.
@@ -221,7 +227,6 @@ render missing usage as a zero-cost request. The patient Documents table adds
 **Latest cost** and **Total cost** columns. The existing design-system screens
 include synthetic examples of the selectors, usage table and cross-patient
 Documents library.
-
 
 ### Template and settings configuration
 
