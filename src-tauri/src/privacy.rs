@@ -1,12 +1,27 @@
 use crate::documents;
-use crate::storage::{MappingView, NoteSummary, NoteView, PatientView, Storage};
+use crate::storage::{
+    load_openai_key, openai_key_configured, remove_openai_key, save_openai_key,
+    ClinicianProfileView, DocumentSummary, MappingView, NoteSummary, NoteView, PatientView,
+    Storage,
+};
+use clinicians_veil_core::document_usage::{
+    document_model, document_models, estimate, CostEstimate, DocumentModel, TokenUsage,
+    UsageSummary, MAX_OUTPUT_TOKENS,
+};
 use clinicians_veil_core::documents::{
     DocumentFormat, DocumentMetadata, ExtractedDocument, OriginalDocument,
 };
-use clinicians_veil_core::privacy::{self, Decision, PrivacyResult, Session, SessionView};
+use clinicians_veil_core::{
+    document_generation::{
+        restore_response, DocumentBody, DocumentTemplate, PatientDocument, PreparedSubmission,
+        RestoredDocument,
+    },
+    privacy::{self, Decision, PrivacyResult, Session, SessionView},
+};
 use clinicians_veil_ner::{assets, detect};
 use serde::Serialize;
 use std::{
+    io::Read,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -153,6 +168,30 @@ pub struct ModelStatus {
 pub struct OpenedNote {
     note: NoteView,
     session: SessionView,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSettings {
+    #[serde(flatten)]
+    profile: ClinicianProfileView,
+    api_key_configured: bool,
+    models: Vec<DocumentModel>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedSubmissionView {
+    document_id: i64,
+    estimate: CostEstimate,
+    id: String,
+    model: String,
+    destination: String,
+    purpose: String,
+    instructions: String,
+    input: String,
+    payload_digest: String,
+    source_count: usize,
 }
 
 #[tauri::command]
@@ -647,6 +686,399 @@ pub fn save_mapping_from_review(
     }
 }
 
+#[tauri::command]
+pub fn list_document_templates(
+    state: State<'_, PrivacyState>,
+    include_archived: bool,
+) -> PrivacyResult<Vec<DocumentTemplate>> {
+    state.storage()?.templates(include_archived)
+}
+
+#[tauri::command]
+pub fn create_document_template(
+    state: State<'_, PrivacyState>,
+    name: String,
+    description: String,
+    instructions: String,
+) -> PrivacyResult<DocumentTemplate> {
+    state
+        .storage()?
+        .create_template(&name, &description, &instructions)
+}
+
+#[tauri::command]
+pub fn update_document_template(
+    state: State<'_, PrivacyState>,
+    id: i64,
+    name: String,
+    description: String,
+    instructions: String,
+) -> PrivacyResult<DocumentTemplate> {
+    state
+        .storage()?
+        .update_template(id, &name, &description, &instructions)
+}
+
+#[tauri::command]
+pub fn duplicate_document_template(
+    state: State<'_, PrivacyState>,
+    id: i64,
+) -> PrivacyResult<DocumentTemplate> {
+    state.storage()?.duplicate_template(id)
+}
+
+#[tauri::command]
+pub fn set_document_template_archived(
+    state: State<'_, PrivacyState>,
+    id: i64,
+    archived: bool,
+) -> PrivacyResult<DocumentTemplate> {
+    state.storage()?.set_template_archived(id, archived)
+}
+
+#[tauri::command]
+pub fn document_settings(state: State<'_, PrivacyState>) -> PrivacyResult<DocumentSettings> {
+    Ok(DocumentSettings {
+        profile: state.storage()?.clinician_profile()?,
+        api_key_configured: openai_key_configured(),
+        models: document_models(),
+    })
+}
+
+#[tauri::command]
+pub fn save_document_settings(
+    state: State<'_, PrivacyState>,
+    display_name: String,
+    role: String,
+    qualifications: String,
+    signature: Option<Vec<u8>>,
+    remove_signature: bool,
+    openai_model: String,
+    api_key: Option<String>,
+) -> PrivacyResult<DocumentSettings> {
+    document_model(&openai_model)?;
+    if let Some(api_key) = api_key {
+        save_openai_key(&api_key)?;
+    }
+    let profile = state.storage()?.save_clinician_profile(
+        &display_name,
+        &role,
+        &qualifications,
+        signature.as_deref(),
+        remove_signature,
+        &openai_model,
+    )?;
+    Ok(DocumentSettings {
+        profile,
+        api_key_configured: openai_key_configured(),
+        models: document_models(),
+    })
+}
+
+#[tauri::command]
+pub fn remove_openai_api_key(state: State<'_, PrivacyState>) -> PrivacyResult<DocumentSettings> {
+    remove_openai_key()?;
+    document_settings(state)
+}
+
+#[tauri::command]
+pub async fn test_openai_connection() -> PrivacyResult<()> {
+    let key = load_openai_key()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let key = std::str::from_utf8(&key)
+            .map_err(|_| "The OpenAI API key in Keychain is unavailable.")?;
+        let client = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(20))
+            .build()
+            .map_err(|_| "The OpenAI connection test could not start.")?;
+        let response = client
+            .get("https://api.openai.com/v1/models")
+            .bearer_auth(key)
+            .send()
+            .map_err(|_| {
+                "OpenAI could not be reached. Check the network connection and try again."
+            })?;
+        if response.status().is_redirection() {
+            return Err("OpenAI redirected the connection test, so nothing was followed.");
+        }
+        if !response.status().is_success() {
+            return Err("OpenAI rejected the connection test. Replace the API key and try again.");
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|_| "The OpenAI connection test could not finish.")?
+}
+
+#[tauri::command]
+pub fn list_patient_documents(
+    state: State<'_, PrivacyState>,
+    patient_id: i64,
+) -> PrivacyResult<Vec<DocumentSummary>> {
+    state.storage()?.documents(patient_id)
+}
+
+#[tauri::command]
+pub fn patient_document(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<PatientDocument> {
+    state.storage()?.patient_document(id)
+}
+
+#[tauri::command]
+pub fn save_patient_document(
+    state: State<'_, PrivacyState>,
+    id: Option<i64>,
+    patient_id: i64,
+    title: String,
+    template_id: i64,
+    body: DocumentBody,
+    reviewed: bool,
+    include_signature: bool,
+    source_note_ids: Vec<i64>,
+) -> PrivacyResult<PatientDocument> {
+    state.storage()?.save_document(
+        id,
+        patient_id,
+        &title,
+        template_id,
+        &body,
+        reviewed,
+        include_signature,
+        &source_note_ids,
+    )
+}
+
+#[tauri::command]
+pub fn delete_patient_document(state: State<'_, PrivacyState>, id: i64) -> PrivacyResult<()> {
+    state.storage()?.delete_document(id)
+}
+
+#[tauri::command]
+pub fn prepare_document_submission(
+    state: State<'_, PrivacyState>,
+    patient_id: i64,
+    template_id: i64,
+    note_ids: Vec<i64>,
+    model: String,
+    title: String,
+    document_id: Option<i64>,
+) -> PrivacyResult<PreparedSubmissionView> {
+    let prepared = state.storage()?.prepare_document_submission(
+        patient_id,
+        template_id,
+        &note_ids,
+        &model,
+        &title,
+        document_id,
+    )?;
+    Ok(PreparedSubmissionView {
+        document_id: state.storage()?.prepared_document_id(&prepared.id)?,
+        estimate: estimate(
+            &document_model(&prepared.model)?,
+            &prepared.instructions,
+            &prepared.input,
+        ),
+        id: prepared.id,
+        model: prepared.model,
+        destination: prepared.destination,
+        purpose: prepared.purpose,
+        instructions: prepared.instructions,
+        input: prepared.input,
+        payload_digest: prepared.payload_digest,
+        source_count: prepared.source_revisions.len(),
+    })
+}
+
+#[tauri::command]
+pub fn document_usage(
+    state: State<'_, PrivacyState>,
+    from: Option<i64>,
+    until: Option<i64>,
+    document_id: Option<i64>,
+) -> PrivacyResult<UsageSummary> {
+    state.storage()?.document_usage(from, until, document_id)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedDocument {
+    document_id: i64,
+    #[serde(flatten)]
+    restored: RestoredDocument,
+    usage: UsageSummary,
+}
+
+#[tauri::command]
+pub async fn submit_document_generation(
+    state: State<'_, PrivacyState>,
+    operation: u64,
+    preparation_id: String,
+) -> PrivacyResult<GeneratedDocument> {
+    let op = state.begin(operation)?;
+    // Missing credentials do not consume approval or count as an API attempt.
+    let key = load_openai_key()?;
+    let prepared = op
+        .state
+        .storage()?
+        .consume_prepared_submission(&preparation_id)?;
+    let document_id = state.storage()?.prepared_document_id(&preparation_id)?;
+    let restoration = prepared.restorations.clone();
+    let audit = prepared.clone();
+    let response =
+        tauri::async_runtime::spawn_blocking(move || send_openai(&op, &prepared, &key)).await;
+    let (result, usage) = response.unwrap_or((
+        Err("OpenAI did not return a document. Prepare and send a new submission."),
+        None,
+    ));
+    state.storage()?.finish_document_attempt(
+        &preparation_id,
+        if result.is_ok() {
+            "completed"
+        } else {
+            "failed"
+        },
+        usage.as_ref(),
+    )?;
+    state.storage()?.record_submission_outcome(
+        &audit,
+        if result.is_ok() {
+            "completed"
+        } else {
+            "failed"
+        },
+    )?;
+    Ok(GeneratedDocument {
+        document_id,
+        restored: restore_response(&result?, &restoration),
+        usage: state
+            .storage()?
+            .document_usage(None, None, Some(document_id))?,
+    })
+}
+
+fn send_openai(
+    op: &Operation,
+    prepared: &PreparedSubmission,
+    key: &[u8],
+) -> (PrivacyResult<String>, Option<TokenUsage>) {
+    let fail = |message| (Err(message), None);
+    if op.cancel.load(Ordering::Relaxed) {
+        return fail(
+            "The OpenAI submission was cancelled. Review and prepare a new submission to retry.",
+        );
+    }
+    if prepared.destination != clinicians_veil_core::document_generation::OPENAI_ORIGIN {
+        return fail("The configured OpenAI destination is not allowed.");
+    }
+    let key = match std::str::from_utf8(key) {
+        Ok(key) => key,
+        Err(_) => return fail("The OpenAI API key in Keychain is unavailable."),
+    };
+    let client = match reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(90))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => {
+            return fail("OpenAI is unavailable. Prepare and send a new submission to retry.")
+        }
+    };
+    let response = client
+        .post("https://api.openai.com/v1/responses")
+        .bearer_auth(key)
+        .json(&serde_json::json!({
+            "model": prepared.model,
+            "instructions": prepared.instructions,
+            "input": prepared.input,
+            "store": false,
+            "background": false,
+            "tools": [],
+            "tool_choice": "none",
+            "truncation": "disabled",
+            "service_tier": "default",
+            "max_output_tokens": MAX_OUTPUT_TOKENS
+        }))
+        .send();
+    let mut response = match response {
+        Ok(response) if response.status().is_success() => response,
+        Ok(response) if response.status().is_redirection() => {
+            return fail("OpenAI redirected the request, so nothing was followed. Review the configured destination.")
+        }
+        Ok(_) => return fail("OpenAI did not return a document. Prepare and send a new submission to retry."),
+        Err(_) => return fail("OpenAI could not be reached. Prepare and send a new submission to retry."),
+    };
+    let mut bytes = Vec::new();
+    if response
+        .by_ref()
+        .take(2 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() > 2 * 1024 * 1024
+    {
+        return fail(
+            "The OpenAI response was too large. Prepare and send a new submission to retry.",
+        );
+    }
+    let body: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(body) => body,
+        Err(_) => return fail(
+            "OpenAI returned an unreadable document. Prepare and send a new submission to retry.",
+        ),
+    };
+    document_response(&body, &prepared.model, op.cancel.load(Ordering::Relaxed))
+}
+
+fn document_response(
+    body: &serde_json::Value,
+    model: &str,
+    cancelled: bool,
+) -> (PrivacyResult<String>, Option<TokenUsage>) {
+    let usage = if body.get("model").and_then(serde_json::Value::as_str) == Some(model)
+        && body
+            .get("service_tier")
+            .and_then(serde_json::Value::as_str)
+            .is_none_or(|tier| tier == "default")
+    {
+        TokenUsage::from_response(&body)
+    } else {
+        None
+    };
+    if cancelled {
+        return (Err("The OpenAI submission was cancelled. Review and prepare a new submission to retry."), usage);
+    }
+    if body.get("status").and_then(serde_json::Value::as_str) != Some("completed") {
+        return (
+            Err(
+                "OpenAI did not complete the document. Prepare and send a new submission to retry.",
+            ),
+            usage,
+        );
+    }
+    let text = body
+        .get("output")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("content").and_then(serde_json::Value::as_array))
+        .flatten()
+        .filter(|content| {
+            content.get("type").and_then(serde_json::Value::as_str) == Some("output_text")
+        })
+        .filter_map(|content| content.get("text").and_then(serde_json::Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if text.trim().is_empty() {
+        return (
+            Err("OpenAI returned no document text. Prepare and send a new submission to retry."),
+            usage,
+        );
+    }
+    (Ok(text), usage)
+}
+
 fn reviewed_output(inner: &Inner, session_id: u64, revision: u64) -> PrivacyResult<String> {
     if inner.active.is_some() {
         return Err("Wait for processing to finish.");
@@ -669,6 +1101,36 @@ mod tests {
             storage: None,
         }
     }
+    #[test]
+    fn incomplete_and_cancelled_responses_keep_billable_usage() {
+        let model = clinicians_veil_core::document_usage::DEFAULT_DOCUMENT_MODEL;
+        let mut body = serde_json::json!({"model": model, "status": "incomplete", "service_tier": "default",
+            "usage": {"input_tokens": 100, "input_tokens_details": {"cached_tokens": 20}, "output_tokens": 50},
+            "output": [{"content": [{"type": "output_text", "text": "Synthetic partial draft"}]}]});
+        let (result, usage) = document_response(&body, model, false);
+        assert!(result.is_err());
+        assert_eq!(usage.unwrap().output_tokens, 50);
+        body["status"] = "completed".into();
+        let (result, usage) = document_response(&body, model, true);
+        assert!(result.is_err());
+        assert!(usage.is_some());
+        let (result, usage) = document_response(&body, model, false);
+        assert_eq!(result.unwrap(), "Synthetic partial draft");
+        assert!(usage.is_some());
+    }
+
+    #[test]
+    fn unexpected_model_or_service_tier_leaves_cost_unknown() {
+        let model = clinicians_veil_core::document_usage::DEFAULT_DOCUMENT_MODEL;
+        let mut body = serde_json::json!({"model": model, "status": "completed", "service_tier": "priority",
+            "usage": {"input_tokens": 100, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 50},
+            "output": [{"content": [{"type": "output_text", "text": "Synthetic draft"}]}]});
+        assert!(document_response(&body, model, false).1.is_none());
+        body["service_tier"] = "default".into();
+        body["model"] = "unrecognised-model".into();
+        assert!(document_response(&body, model, false).1.is_none());
+    }
+
     #[test]
     fn operations_are_exclusive_and_release_their_guard_on_failure() {
         let state = state();

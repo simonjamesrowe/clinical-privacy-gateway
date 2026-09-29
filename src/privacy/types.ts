@@ -69,6 +69,75 @@ export interface PatientView {
   patientReference?: string;
   noteCount?: number;
   redactionCount?: number;
+  documentCount?: number;
+}
+export interface DocumentTemplate {
+  id: number;
+  version: number;
+  name: string;
+  description: string;
+  instructions: string;
+  archived: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface DocumentSummary {
+  usage: UsageSummary;
+  id: number;
+  patientId: number;
+  title: string;
+  templateName: string;
+  revision: number;
+  reviewed: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface DocumentSettings {
+  models: DocumentModel[];
+  displayName: string;
+  role: string;
+  qualifications: string;
+  hasSignature: boolean;
+  openaiModel: string;
+  clinicalSendingEnabled: boolean;
+  apiKeyConfigured: boolean;
+}
+export interface DocumentModel {
+  id: string;
+  name: string;
+  inputNanos: number;
+  cachedInputNanos: number;
+  outputNanos: number;
+  pricingCheckedAt: string;
+}
+export interface UsageSummary {
+  reportsCreated: number;
+  generationAttempts: number;
+  knownCostNanos: number;
+  unknownCostAttempts: number;
+  latestCostNanos: number | null;
+}
+export interface PreparedDocumentSubmission {
+  id: string;
+  documentId: number;
+  model: string;
+  destination: string;
+  purpose: string;
+  instructions: string;
+  input: string;
+  sourceCount: number;
+  estimate: {
+    inputTokenAllowance: number;
+    outputTokenAllowance: number;
+    costNanos: number;
+  };
+}
+export interface GeneratedDocument {
+  documentId: number;
+  text: string;
+  exactReplacements: number;
+  unknownTokens: string[];
+  usage: UsageSummary;
 }
 export interface Progress {
   operation: number;

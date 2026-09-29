@@ -368,6 +368,10 @@
   background: var(--color-surface-raised);
   font: var(--text-md) var(--font-body);
 }
+.field select {
+  min-width: 0;
+  max-width: 100%;
+}
 .field .hint {
   color: var(--color-ink-muted);
   font-size: var(--text-sm);
@@ -597,6 +601,10 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+pre.pane {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .pane mark {
   padding: 0 0.15rem;
   border-bottom: 2px solid var(--color-pending-line);
@@ -661,6 +669,70 @@
   background: var(--color-surface);
 }
 
+/* Patient documents and prompt templates. These compose the same fields,
+   tables, panels and notices as the rest of the workspace. */
+.workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  list-style: none;
+}
+.workflow-steps li {
+  padding: var(--space-3);
+  border-top: 3px solid var(--color-line);
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+}
+.workflow-steps li[aria-current="step"] {
+  border-color: var(--color-accent);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.document-create,
+.template-form,
+.settings-documents {
+  max-width: var(--content-width);
+}
+.choice-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.choice-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+  background: var(--color-surface-raised);
+}
+.form-actions--split,
+.settings-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: end;
+}
+.settings-row > :first-child {
+  flex: 1;
+}
+.signature-pad {
+  display: grid;
+  place-items: center;
+  min-height: 8rem;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-muted);
+}
+
 @media (max-width: 720px) {
   .primary-nav a {
     padding: var(--space-2);
@@ -677,6 +749,16 @@
   }
   .split {
     grid-template-columns: 1fr;
+  }
+  .workflow-steps {
+    grid-template-columns: 1fr;
+  }
+  .choice-row,
+  .settings-row,
+  .form-actions--split {
+    align-items: stretch;
+    grid-template-columns: auto 1fr;
+    flex-direction: column;
   }
 }
 

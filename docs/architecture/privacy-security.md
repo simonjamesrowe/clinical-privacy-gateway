@@ -23,6 +23,10 @@ unlocked system. FileVault remains complementary and expected.
 | Patient-specific saved redaction | Until its patient is deleted               | No         | Never                        |
 | All-patients saved redaction     | Retained; no deletion path in this release | No         | Never                        |
 | Operational diagnostics          | Content-free and minimal                   | No         | Non-content metadata only    |
+| Document prompt templates        | Until archived; editable and restorable    | No         | Only inside reviewed payload |
+| Patient document revisions       | Until document or patient deletion         | No         | Never automatically          |
+| Submission/restoration records   | With their patient document                | No         | Never                        |
+| Clinician profile and signature  | Until replaced or removed                  | No         | Never                        |
 
 Expiry removes source audio, the original aligned transcript, alignment data,
 and any derived temporary files as one operation. Deleting a note removes its
@@ -58,6 +62,17 @@ Every submission must:
 4. bind approval to a digest of that payload and revision;
 5. cancel if the payload changes; and
 6. record content-free outcome metadata inside the encrypted database.
+
+For patient-document generation, the core replaces eligible reviewed
+placeholder spans with request-specific tokens derived from saved review
+provenance. Exact local restoration uses only that submission's token map. It
+does not perform broad replacement from the saved-redaction library. Kept text
+is authoritative; removed and generalised details are not reconstructed.
+
+Provider credentials use a separate Keychain item. The encrypted database key,
+provider credential, clinical material, source metadata, token map, clinician
+profile, and signature have separate lifecycles and are never combined in logs.
+Recording a credential does not enable clinical sending.
 
 Redirects must not bypass destination validation. Validate each parsed origin
 and each redirect hop before sending. Raw source text, source audio, original
@@ -100,3 +115,11 @@ structured text nodes. Neither path follows document links, external XML
 relationships, scripts, actions or embedded objects. No plaintext preview
 files or browser persistence are created. Native handles and buffers are
 released on success, discard, cancellation, failure and window destruction.
+
+Model selection and usage accounting are local. The curated model selector does
+not enable egress or imply that every model is organisationally approved. A
+per-document choice is frozen into the prepared submission; changing Settings'
+default affects only subsequent documents. Preparation estimates use local
+bytes, never a provider token-counting endpoint. Prices and content-free usage
+receipts remain in SQLCipher. Accounting totals survive deletion after their
+link to the document is cleared; clinical material and patient metadata do not.

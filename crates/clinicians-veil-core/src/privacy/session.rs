@@ -88,6 +88,21 @@ pub struct MappingDraft {
     pub replacement: String,
 }
 
+/// A reviewed replacement that may be exchanged for a request-specific token.
+/// This remains local and is never part of the provider payload.
+pub struct EgressItem {
+    pub item_id: u64,
+    pub output_start: usize,
+    pub output_end: usize,
+    pub original: String,
+    pub replacement: String,
+}
+
+pub struct EgressMaterial {
+    pub reviewed_text: String,
+    pub items: Vec<EgressItem>,
+}
+
 /// Lives only for the current review. Deliberately no Debug/Serialize on retained clinical state.
 #[derive(Clone)]
 pub struct Session {
@@ -546,6 +561,31 @@ impl Session {
         })
         .map_err(|_| "The reviewed note could not be saved.")?;
         Ok((self.source.clone(), text, provenance))
+    }
+
+    /// Returns only accepted/edited replacement spans. Kept text already is
+    /// authoritative, while removed text has no output span and must never be
+    /// reconstructed by document generation.
+    pub fn egress_material(&self) -> PrivacyResult<EgressMaterial> {
+        let reviewed_text = self.copy_text()?;
+        let (_, _, positions) = self.render();
+        let items = self
+            .items
+            .iter()
+            .zip(positions)
+            .filter(|(item, _)| matches!(item.decision, Decision::Accept | Decision::Edit))
+            .map(|(item, (output_start, output_end))| EgressItem {
+                item_id: item.id,
+                output_start,
+                output_end,
+                original: self.source[item.span.start..item.span.end].to_owned(),
+                replacement: item.replacement.clone(),
+            })
+            .collect();
+        Ok(EgressMaterial {
+            reviewed_text,
+            items,
+        })
     }
 
     pub fn view(&self) -> SessionView {

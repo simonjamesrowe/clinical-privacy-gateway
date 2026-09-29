@@ -1,5 +1,7 @@
 //! Framework-independent domain types for Clinician's Veil.
 
+pub mod document_generation;
+pub mod document_usage;
 pub mod documents;
 pub mod privacy;
 

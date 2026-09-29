@@ -37,6 +37,41 @@ const initial: ReviewSession = {
     },
   ],
 };
+const models = [
+  {
+    id: "gpt-4.1-mini-2025-04-14",
+    name: "GPT-4.1 mini · Lower cost",
+    inputNanos: 400,
+    cachedInputNanos: 100,
+    outputNanos: 1600,
+    pricingCheckedAt: "2026-09-28",
+  },
+  {
+    id: "gpt-4.1-2025-04-14",
+    name: "GPT-4.1",
+    inputNanos: 2000,
+    cachedInputNanos: 500,
+    outputNanos: 8000,
+    pricingCheckedAt: "2026-09-28",
+  },
+];
+const documentSettings = {
+  displayName: "",
+  role: "",
+  qualifications: "",
+  hasSignature: false,
+  openaiModel: models[0].id,
+  clinicalSendingEnabled: false,
+  apiKeyConfigured: true,
+  models,
+};
+const emptyUsage = {
+  reportsCreated: 0,
+  generationAttempts: 0,
+  knownCostNanos: 0,
+  unknownCostAttempts: 0,
+  latestCostNanos: null,
+};
 let root: HTMLElement;
 let page: TextReviewPage;
 let call: Mock<
@@ -93,6 +128,8 @@ beforeEach(() => {
         bytes: 110_000_000,
         revision: "fixture",
       };
+    if (command === "document_settings") return documentSettings;
+    if (command === "document_usage") return emptyUsage;
     if (command === "list_mappings" || command === "search_notes") return [];
     if (command === "review_decision") {
       const item = args?.item;
@@ -152,6 +189,7 @@ const patient = {
   patientReference: "SYN-7",
   noteCount: 1,
   redactionCount: 1,
+  documentCount: 0,
 };
 const redaction = (id: number, phrase: string, replacement: string) => ({
   id,
@@ -202,6 +240,75 @@ async function submit(selector: string) {
 }
 
 describe("text review", () => {
+  it("shows document prompt templates and their maintenance actions", async () => {
+    mockLibrary({
+      list_document_templates: [
+        {
+          id: 1,
+          version: 1,
+          name: "GP letter",
+          description: "Summarise synthetic care for the GP",
+          instructions: "Use only supplied notes.",
+          archived: false,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    await mount(true, "patients");
+    await click('[data-route="templates"]');
+    expect(root.querySelector("#templates-title")?.textContent).toBe(
+      "Document prompt templates",
+    );
+    expect(root.querySelector(".data-table")?.textContent).toContain(
+      "GP letter",
+    );
+    expect(root.querySelector(".data-table")?.textContent).toContain(
+      "Duplicate",
+    );
+    await click("[data-new-template]");
+    expect(root.querySelector(".template-form")?.textContent).toContain(
+      "New template",
+    );
+  });
+
+  it("adds a Documents tab and keeps generation visibly governance-gated", async () => {
+    mockLibrary({
+      list_patient_documents: [],
+      list_document_templates: [
+        {
+          id: 1,
+          version: 1,
+          name: "GP letter",
+          description: "Synthetic description",
+          instructions: "Use only supplied notes.",
+          archived: false,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      document_settings: {
+        displayName: "",
+        role: "",
+        qualifications: "",
+        hasSignature: false,
+        openaiModel: "configured-model",
+        clinicalSendingEnabled: false,
+        apiKeyConfigured: true,
+      },
+    });
+    await mount(true, "patients");
+    await click("[data-open-patient]");
+    await click("#tab-documents");
+    expect(root.querySelector("[data-new-document]")).not.toBeNull();
+    await click("[data-new-document]");
+    expect(root.querySelector("#new-document-title")?.textContent).toBe(
+      "New document",
+    );
+    expect(root.textContent).toContain("Clinical sending is not enabled");
+    expect(root.textContent).toContain("Review submission");
+  });
+
   it("starts a new note from a patient and includes that patient in detection", async () => {
     call.mockImplementation(async (command: string) => {
       if (command === "model_status")
@@ -389,12 +496,14 @@ describe("text review", () => {
       revision: "fixture",
     });
     let operation = 0;
-    call.mockImplementationOnce(
-      (_command, args) =>
-        new Promise((_, no) => {
-          operation = Number(args?.operation);
-          reject = no;
-        }),
+    const previous = call.getMockImplementation()!;
+    call.mockImplementation((command, args) =>
+      command === "install_model"
+        ? new Promise((_, no) => {
+            operation = Number(args?.operation);
+            reject = no;
+          })
+        : previous(command, args),
     );
     button("[data-install]").click();
     await flush();
@@ -1444,4 +1553,246 @@ it("renders a full-length review with a tail identifier without dropping text", 
   console.info(
     `Synthetic 100,000-character review render: ${Math.round(elapsed)} ms (jsdom)`,
   );
+});
+
+describe("document model selection and usage", () => {
+  function fixture(overrides: Record<string, unknown> = {}) {
+    mockLibrary({
+      list_patient_documents: [],
+      list_document_templates: [
+        {
+          id: 1,
+          version: 1,
+          name: "GP letter",
+          description: "Synthetic",
+          instructions: "Use supplied notes",
+          archived: false,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      document_settings: documentSettings,
+      ...overrides,
+    });
+  }
+  async function newDocument() {
+    await mount(true, "patients");
+    await click("[data-open-patient]");
+    await click("#tab-documents");
+    await click("[data-new-document]");
+  }
+  function select(selector: string, value: string) {
+    const element = root.querySelector<HTMLSelectElement>(selector)!;
+    element.value = value;
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  function chooseNotes() {
+    type("#document-title", "Synthetic letter");
+    const note = root.querySelector<HTMLInputElement>(
+      '.choice-list input[type="checkbox"]',
+    )!;
+    note.checked = true;
+    note.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  it("starts with the saved default and sends only the per-document override for preparation", async () => {
+    fixture({
+      prepare_document_submission: () => {
+        throw "Clinical sending is not enabled.";
+      },
+    });
+    await newDocument();
+    expect(
+      root.querySelector<HTMLSelectElement>("#document-model")!.value,
+    ).toBe(models[0].id);
+    expect(button("[data-review-submission]").disabled).toBe(true);
+    select("#document-model", models[1].id);
+    chooseNotes();
+    expect(button("[data-review-submission]").disabled).toBe(false);
+    expect(root.querySelector("[data-selected-notes]")!.textContent).toContain(
+      "1 note selected",
+    );
+    await click("[data-review-submission]");
+    expect(call).toHaveBeenCalledWith(
+      "prepare_document_submission",
+      expect.objectContaining({ model: models[1].id, noteIds: [4] }),
+    );
+    expect(
+      call.mock.calls.some(([command]) => command === "save_document_settings"),
+    ).toBe(false);
+    expect(
+      call.mock.calls.some(
+        ([command]) => command === "submit_document_generation",
+      ),
+    ).toBe(false);
+    await click('[data-route="settings"]');
+    expect(
+      root.querySelector<HTMLSelectElement>('select[name="model"]')!.value,
+    ).toBe(models[0].id);
+  });
+  it("saves a new default and uses it for subsequent documents", async () => {
+    let saved = { ...documentSettings };
+    fixture({
+      document_settings: () => saved,
+      save_document_settings: (args: Record<string, unknown>) => {
+        saved = { ...saved, openaiModel: String(args.openaiModel) };
+        return saved;
+      },
+    });
+    await mount(true, "patients");
+    await click('[data-route="settings"]');
+    select('select[name="model"]', models[1].id);
+    await submit("[data-document-settings]");
+    await click('[data-route="patients"]');
+    await click("[data-open-patient]");
+    await click("#tab-documents");
+    await click("[data-new-document]");
+    expect(
+      root.querySelector<HTMLSelectElement>("#document-model")!.value,
+    ).toBe(models[1].id);
+  });
+  it("shows partial spend without treating unknown costs as zero and filters all time", async () => {
+    fixture({
+      document_usage: {
+        reportsCreated: 2,
+        generationAttempts: 4,
+        knownCostNanos: 1080000,
+        unknownCostAttempts: 1,
+        latestCostNanos: null,
+      },
+    });
+    await mount(true, "patients");
+    await click('[data-route="settings"]');
+    expect(root.textContent).toContain("US$0.00108 + unknown costs");
+    expect(root.textContent).toContain("Unavailable — costs unknown");
+    expect(call).toHaveBeenCalledWith("document_usage", {
+      from: expect.any(Number),
+      until: expect.any(Number),
+    });
+    select("[data-usage-period]", "all");
+    await flush();
+    expect(call).toHaveBeenLastCalledWith("document_usage", {});
+    expect(document.activeElement).toBe(
+      root.querySelector("[data-usage-period]"),
+    );
+  });
+  it("shows returned costs, protects an unsaved draft, and saves without another generation", async () => {
+    fixture({
+      prepare_document_submission: {
+        id: "synthetic-result",
+        documentId: 8,
+        model: models[0].id,
+        destination: "https://api.openai.com",
+        purpose: "Generate document",
+        instructions: "Write from supplied notes",
+        input: "[CLIENT] attended.",
+        sourceCount: 1,
+        estimate: {
+          inputTokenAllowance: 100,
+          outputTokenAllowance: 4096,
+          costNanos: 6593600,
+        },
+      },
+      submit_document_generation: {
+        documentId: 8,
+        text: "Synthetic restored letter.",
+        exactReplacements: 1,
+        unknownTokens: [],
+        usage: {
+          ...emptyUsage,
+          reportsCreated: 1,
+          generationAttempts: 1,
+          latestCostNanos: 1080000,
+          knownCostNanos: 1080000,
+        },
+      },
+      save_patient_document: { id: 8 },
+    });
+    await newDocument();
+    chooseNotes();
+    await click("[data-review-submission]");
+    await click("[data-send-document]");
+    expect(root.textContent).toContain("Latest generation: US$0.00108");
+    await click('[data-route="settings"]');
+    expect(root.textContent).toContain("Discard this generated draft?");
+    await click("[data-stay]");
+    const save = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Save draft",
+    )!;
+    save.click();
+    await flush();
+    expect(call).toHaveBeenCalledWith(
+      "save_patient_document",
+      expect.objectContaining({
+        id: 8,
+        reviewed: false,
+        body: {
+          blocks: [
+            {
+              kind: "paragraph",
+              runs: [{ text: "Synthetic restored letter.", bold: false }],
+            },
+          ],
+        },
+      }),
+    );
+    expect(
+      call.mock.calls.filter(
+        ([command]) => command === "submit_document_generation",
+      ),
+    ).toHaveLength(1);
+    expect(root.textContent).toContain("Document draft saved.");
+  });
+  it("keeps an unavailable legacy model visible and requires an explicit selection", async () => {
+    fixture({
+      document_settings: { ...documentSettings, openaiModel: "legacy-model" },
+    });
+    await newDocument();
+    chooseNotes();
+    expect(root.textContent).toContain("Saved model unavailable");
+    expect(button("[data-review-submission]").disabled).toBe(true);
+    select("#document-model", models[0].id);
+    expect(button("[data-review-submission]").disabled).toBe(false);
+  });
+  it("shows the selected model and local estimate before the one-shot send action", async () => {
+    fixture({
+      prepare_document_submission: {
+        id: "synthetic-preparation",
+        documentId: 8,
+        model: models[1].id,
+        destination: "https://api.openai.com",
+        purpose: "Generate document",
+        instructions: "Write from supplied notes",
+        input: "[CLIENT] attended.",
+        sourceCount: 1,
+        estimate: {
+          inputTokenAllowance: 100,
+          outputTokenAllowance: 4096,
+          costNanos: 32968000,
+        },
+      },
+      submit_document_generation: () => {
+        throw "Request timed out. Cost unknown.";
+      },
+    });
+    await newDocument();
+    select("#document-model", models[1].id);
+    chooseNotes();
+    await click("[data-review-submission]");
+    expect(root.textContent).toContain(
+      "Estimated generation allowance: US$0.032968",
+    );
+    expect(root.textContent).toContain("OpenAI · GPT-4.1");
+    expect(
+      call.mock.calls.some(
+        ([command]) => command === "submit_document_generation",
+      ),
+    ).toBe(false);
+    await click("[data-send-document]");
+    expect(call).toHaveBeenCalledWith("submit_document_generation", {
+      preparationId: "synthetic-preparation",
+      operation: expect.any(Number),
+    });
+    expect(root.querySelector("[data-send-document]")).toBeNull();
+    expect(root.textContent).toContain("Cost unknown");
+  });
 });

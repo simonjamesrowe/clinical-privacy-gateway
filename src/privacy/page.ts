@@ -6,6 +6,12 @@ import type {
 } from "./types";
 import type {
   Detection,
+  DocumentSettings,
+  UsageSummary,
+  PreparedDocumentSubmission,
+  GeneratedDocument,
+  DocumentSummary,
+  DocumentTemplate,
   MappingView,
   ModelStatus,
   NoteSummary,
@@ -15,6 +21,13 @@ import type {
   PrivacyBridge,
   ReviewSession,
 } from "./types";
+import {
+  modelSelect,
+  modelPrices,
+  monthRange,
+  usageTable,
+  usd,
+} from "./document-usage";
 import "../styles/components.css";
 import "../styles/review.css";
 import {
@@ -39,26 +52,30 @@ import type { Progress } from "./types";
 type Work =
   | "import"
   | "preview"
+  | "generation"
   | "download"
   | "analysis"
   | "rescan"
   | "review"
   | "copy";
-type Tab = "details" | "notes" | "redactions";
-type Section = "patients" | "notes" | "redactions" | "settings";
+type Tab = "details" | "notes" | "documents" | "redactions";
+type Section = "patients" | "notes" | "redactions" | "templates" | "settings";
 type Route =
   | { name: "patients" }
   | { name: "patient-new" }
   | { name: "patient"; patientId: number; tab: Tab }
+  | { name: "document-new"; patientId: number }
   | { name: "review" }
   | { name: "notes" }
   | { name: "redactions" }
+  | { name: "templates" }
   | { name: "settings" };
 /** Where the clinician goes once an unsaved review is discarded. */
 type Leave =
   | Route
   | "home"
   | "discard"
+  | "regenerate"
   | "paste"
   | "import"
   | "replace-document";
@@ -67,6 +84,12 @@ interface RedactionEdit {
   id: number;
   value: string;
   error: string;
+}
+interface TemplateEdit {
+  id?: number;
+  name: string;
+  description: string;
+  instructions: string;
 }
 
 const EXAMPLE =
@@ -85,10 +108,11 @@ const STAGE_LABEL: Record<string, string> = {
   manual: "manual selection",
   library: "saved redaction",
 };
-const TABS: Tab[] = ["details", "notes", "redactions"];
+const TABS: Tab[] = ["details", "notes", "documents", "redactions"];
 const TAB_LABEL: Record<Tab, string> = {
   details: "Details",
   notes: "Notes",
+  documents: "Documents",
   redactions: "Redactions",
 };
 const CANCELLABLE: (Work | null)[] = [
@@ -97,6 +121,7 @@ const CANCELLABLE: (Work | null)[] = [
   "rescan",
   "import",
   "preview",
+  "generation",
 ];
 
 export class TextReviewPage {
@@ -140,6 +165,22 @@ export class TextReviewPage {
   private searchedQuery = "";
   private mappings: MappingView[] = [];
   private patientMappings: MappingView[] = [];
+  private documents: DocumentSummary[] = [];
+  private templates: DocumentTemplate[] = [];
+  private documentSettings: DocumentSettings | null = null;
+  private usage: UsageSummary | null = null;
+  private usagePeriod: "month" | "all" = "month";
+  private preparedDocument: PreparedDocumentSubmission | null = null;
+  private generatedDocument: GeneratedDocument | null = null;
+  private documentId: number | undefined;
+  private templateEdit: TemplateEdit | null = null;
+  private templateQuery = "";
+  private documentDraft = {
+    title: "",
+    templateId: 0,
+    model: "",
+    noteIds: new Set<number>(),
+  };
   private redactionQuery = "";
   private editing: RedactionEdit | null = null;
   private confirming: string | null = null;
@@ -184,6 +225,8 @@ export class TextReviewPage {
       }
       this.unsubscribe = unsubscribe;
       this.model = await this.bridge.call<ModelStatus>("model_status");
+      this.documentSettings =
+        await this.bridge.call<DocumentSettings>("document_settings");
     } catch {
       this.error = "Model status is unavailable. Reopen this page to retry.";
     }
@@ -215,6 +258,8 @@ export class TextReviewPage {
     this.selection = null;
     this.discarding = null;
     this.drafts.clear();
+    this.generatedDocument = null;
+    this.preparedDocument = null;
     this.workProgress = null;
     this.work = null;
     this.root.replaceChildren();
@@ -237,7 +282,10 @@ export class TextReviewPage {
     const route = this.route;
     if (this.preview) main.append(...this.previewScreen());
     else if (route.name === "review") this.renderReviewScreen(main);
-    else main.append(...this.screen(route));
+    else {
+      if (this.discarding) main.append(this.discardConfirmation());
+      main.append(...this.screen(route));
+    }
     this.updateStatus();
     this.afterRender();
   }
@@ -255,13 +303,20 @@ export class TextReviewPage {
         return this.notesScreen();
       case "redactions":
         return this.redactionsScreen();
+      case "templates":
+        return this.templatesScreen();
+      case "document-new":
+        return this.newDocumentScreen();
       case "settings":
         return this.settingsScreen();
     }
   }
   private section(): Section {
     const name = this.route.name;
-    return name === "notes" || name === "redactions" || name === "settings"
+    return name === "notes" ||
+      name === "redactions" ||
+      name === "templates" ||
+      name === "settings"
       ? name
       : "patients";
   }
@@ -304,9 +359,14 @@ export class TextReviewPage {
           link("patients", "Patients"),
           link("notes", "Notes"),
           link("redactions", "Redactions"),
+          link("templates", "Document prompt templates"),
           link("settings", "Settings"),
         ),
-        h("span", { class: "local-indicator" }, "On this Mac"),
+        h(
+          "span",
+          { class: "local-indicator" },
+          this.work === "generation" ? "Sending to OpenAI" : "On this Mac",
+        ),
       ),
       h("progress", {
         class: "activity",
@@ -382,15 +442,19 @@ export class TextReviewPage {
       : this.message || "Working locally";
     this.el<HTMLElement>("[data-work-detail]").textContent = !running
       ? ""
-      : this.cancelling
-        ? "Waiting for the current local operation to stop."
-        : this.workProgress &&
-            this.work !== "download" &&
-            this.workProgress.total > 0
-          ? `Section ${Math.min(this.workProgress.completed, this.workProgress.total)} of ${this.workProgress.total} · Processing on this Mac`
-          : this.work === "download"
-            ? "Downloading model files only; source text stays on this Mac."
-            : "Processing on this Mac.";
+      : this.work === "generation"
+        ? this.cancelling
+          ? "Cancelling the OpenAI request; usage may still be charged."
+          : "Sending the reviewed payload to OpenAI."
+        : this.cancelling
+          ? "Waiting for the current local operation to stop."
+          : this.workProgress &&
+              this.work !== "download" &&
+              this.workProgress.total > 0
+            ? `Section ${Math.min(this.workProgress.completed, this.workProgress.total)} of ${this.workProgress.total} · Processing on this Mac`
+            : this.work === "download"
+              ? "Downloading model files only; source text stays on this Mac."
+              : "Processing on this Mac.";
     const cancel = this.el<HTMLButtonElement>("[data-cancel]");
     cancel.hidden = !cancellable;
     cancel.disabled = this.cancelling;
@@ -442,6 +506,10 @@ export class TextReviewPage {
   private async navigate(route: Route): Promise<void> {
     if (this.busy || this.disposed) return;
     if (this.preview && !(await this.closePreview())) return;
+    if (this.generatedDocument) {
+      this.requestLeave(route);
+      return;
+    }
     if (this.route.name === "review" && route.name !== "review") {
       if (this.hasUnsavedReview()) {
         this.requestLeave(route);
@@ -464,9 +532,21 @@ export class TextReviewPage {
       this.patientQuery = "";
       this.noteQuery = "";
       this.redactionQuery = "";
+      this.templateQuery = "";
     }
     if (route.name === "patient-new")
       this.patientDraft = { name: "", reference: "" };
+    if (route.name === "document-new") {
+      this.documentDraft = {
+        title: "",
+        templateId: 0,
+        model: "",
+        noteIds: new Set(),
+      };
+      this.preparedDocument = null;
+      this.generatedDocument = null;
+      this.documentId = undefined;
+    }
     await this.load(route);
     if (this.route.name === "patient" && this.patient) this.resetPatientDraft();
     this.message = options.flash ?? "";
@@ -497,6 +577,12 @@ export class TextReviewPage {
                   patientId: patient.id,
                 })
               : this.notes;
+          const documents =
+            route.tab === "documents"
+              ? await call<DocumentSummary[]>("list_patient_documents", {
+                  patientId: patient.id,
+                })
+              : this.documents;
           const [patientMappings, mappings] =
             route.tab === "redactions"
               ? await Promise.all([
@@ -506,7 +592,14 @@ export class TextReviewPage {
                   call<MappingView[]>("list_mappings"),
                 ])
               : [this.patientMappings, this.mappings];
-          return { patients, patient, notes, patientMappings, mappings };
+          return {
+            patients,
+            patient,
+            notes,
+            documents,
+            patientMappings,
+            mappings,
+          };
         });
         if (!result) {
           this.patient = null;
@@ -517,10 +610,43 @@ export class TextReviewPage {
           patients: this.patients,
           patient: this.patient,
           notes: this.notes,
+          documents: this.documents,
           patientMappings: this.patientMappings,
           mappings: this.mappings,
         } = result);
         this.searchedQuery = query;
+        return;
+      }
+      case "document-new": {
+        const result = await this.perform(
+          "Preparing a new document…",
+          async () => {
+            const [patients, notes, templates, settings] = await Promise.all([
+              call<PatientView[]>("list_patients"),
+              call<NoteSummary[]>("search_notes", {
+                query: "",
+                patientId: route.patientId,
+              }),
+              call<DocumentTemplate[]>("list_document_templates", {
+                includeArchived: false,
+              }),
+              call<DocumentSettings>("document_settings"),
+            ]);
+            const patient = patients.find(
+              (item) => item.id === route.patientId,
+            );
+            if (!patient) throw "This patient is no longer available.";
+            return { patients, patient, notes, templates, settings };
+          },
+        );
+        if (!result) return;
+        this.patients = result.patients;
+        this.patient = result.patient;
+        this.notes = result.notes;
+        this.templates = result.templates;
+        this.documentSettings = result.settings;
+        this.documentDraft.templateId = result.templates[0]?.id ?? 0;
+        this.documentDraft.model = result.settings.openaiModel;
         return;
       }
       case "notes": {
@@ -541,11 +667,37 @@ export class TextReviewPage {
         if (result) this.mappings = result;
         return;
       }
-      case "settings": {
-        const result = await this.perform("Checking the local model…", () =>
-          call<ModelStatus>("model_status"),
+      case "templates": {
+        const result = await this.perform(
+          "Loading document prompt templates…",
+          () =>
+            call<DocumentTemplate[]>("list_document_templates", {
+              includeArchived: true,
+            }),
         );
-        if (result) this.model = result;
+        if (result) this.templates = result;
+        return;
+      }
+      case "settings": {
+        const result = await this.perform(
+          "Loading settings and usage…",
+          async () => {
+            const [model, settings, usage] = await Promise.all([
+              call<ModelStatus>("model_status"),
+              call<DocumentSettings>("document_settings"),
+              call<UsageSummary>(
+                "document_usage",
+                this.usagePeriod === "month" ? monthRange() : {},
+              ),
+            ]);
+            return { model, settings, usage };
+          },
+        );
+        if (result) {
+          this.model = result.model;
+          this.documentSettings = result.settings;
+          this.usage = result.usage;
+        }
         return;
       }
       default:
@@ -568,7 +720,7 @@ export class TextReviewPage {
   }
   private stay(): void {
     this.discarding = null;
-    this.focusTarget = "[data-discard]";
+    this.focusTarget = this.generatedDocument ? "h1" : "[data-discard]";
     this.render();
   }
   private async confirmLeave(): Promise<void> {
@@ -579,6 +731,14 @@ export class TextReviewPage {
       await this.chooseDocument();
       return;
     }
+    if (target === "regenerate") {
+      this.generatedDocument = null;
+      this.preparedDocument = null;
+      this.render();
+      return;
+    }
+    this.generatedDocument = null;
+    this.preparedDocument = null;
     if (!(await this.clearSession())) return;
     if (target === "paste") {
       this.inputMode = "paste";
@@ -595,7 +755,10 @@ export class TextReviewPage {
   private async goHome(): Promise<void> {
     if (this.busy || this.disposed) return;
     if (this.preview && !(await this.closePreview())) return;
-    if (this.route.name === "review" && this.hasUnsavedReview()) {
+    if (
+      this.generatedDocument ||
+      (this.route.name === "review" && this.hasUnsavedReview())
+    ) {
       this.requestLeave("home");
       return;
     }
@@ -727,6 +890,7 @@ export class TextReviewPage {
               { label: "Patient" },
               { label: "Patient number" },
               { label: "Notes", narrow: true },
+              { label: "Documents", narrow: true },
               { label: "Redactions", narrow: true },
               { label: "Actions", hidden: true },
             ],
@@ -738,7 +902,7 @@ export class TextReviewPage {
                     {},
                     h(
                       "td",
-                      { colspan: 5, class: "muted" },
+                      { colspan: 6, class: "muted" },
                       `No patients match “${this.patientQuery}”.`,
                     ),
                   ),
@@ -785,6 +949,7 @@ export class TextReviewPage {
       ),
       h("td", { class: "mono" }, patient.patientReference ?? "—"),
       h("td", { class: "hide-narrow" }, patient.noteCount ?? 0),
+      h("td", { class: "hide-narrow" }, patient.documentCount ?? 0),
       h("td", { class: "hide-narrow" }, patient.redactionCount ?? 0),
       h(
         "td",
@@ -936,6 +1101,7 @@ export class TextReviewPage {
     const count: Record<Tab, number | undefined> = {
       details: undefined,
       notes: patient.noteCount,
+      documents: patient.documentCount,
       redactions: patient.redactionCount,
     };
     const tabs = TABS.map((tab) =>
@@ -963,7 +1129,9 @@ export class TextReviewPage {
         ? this.detailsTab(patient)
         : route.tab === "notes"
           ? this.patientNotesTab(patient)
-          : this.patientRedactionsTab(patient);
+          : route.tab === "documents"
+            ? this.patientDocumentsTab(patient)
+            : this.patientRedactionsTab(patient);
     return [
       breadcrumb([
         {
@@ -1104,7 +1272,7 @@ export class TextReviewPage {
             confirmation({
               subject: "patient",
               question: `Delete ${patient.name}?`,
-              consequence: `Their ${plural(patient.noteCount ?? 0, "note")} and ${plural(patient.redactionCount ?? 0, "redaction")} will also be deleted from the encrypted library.`,
+              consequence: `Their ${plural(patient.noteCount ?? 0, "note")}, ${plural(patient.documentCount ?? 0, "document")} and ${plural(patient.redactionCount ?? 0, "redaction")} will also be deleted from the encrypted library.`,
               onCancel: () => this.cancelConfirm(),
               onConfirm: () => void this.deletePatient(patient),
             }),
@@ -1119,7 +1287,7 @@ export class TextReviewPage {
               h(
                 "p",
                 { class: "muted" },
-                "Removes this patient, their notes and their redactions from this Mac.",
+                "Removes this patient, their notes, documents and redactions from this Mac.",
               ),
             ),
             h(
@@ -1693,6 +1861,729 @@ export class TextReviewPage {
     ];
   }
 
+  // Patient documents -------------------------------------------------------
+
+  private patientDocumentsTab(patient: PatientView): Node[] {
+    const create = h(
+      "button",
+      {
+        type: "button",
+        class: "button button--primary",
+        "data-new-document": true,
+        onclick: () =>
+          void this.navigate({ name: "document-new", patientId: patient.id }),
+      },
+      "New document",
+    );
+    if (!this.documents.length)
+      return [
+        emptyState(
+          "No documents yet",
+          "Create a document from this patient’s completed reviewed notes.",
+          create,
+        ),
+      ];
+    return [
+      h(
+        "div",
+        { class: "table-toolbar" },
+        h(
+          "span",
+          { class: "meta muted" },
+          plural(this.documents.length, "document"),
+        ),
+        create,
+      ),
+      dataTable(
+        [
+          { label: "Title" },
+          { label: "Template" },
+          { label: "Created" },
+          { label: "Status" },
+          { label: "Latest cost" },
+          { label: "Total cost" },
+        ],
+        this.documents.map((document) =>
+          h(
+            "tr",
+            {},
+            h("td", {}, document.title),
+            h("td", {}, document.templateName),
+            h("td", { class: "mono" }, formatDate(document.createdAt)),
+            h(
+              "td",
+              {},
+              h(
+                "span",
+                { class: document.reviewed ? "badge" : "badge badge--muted" },
+                document.reviewed ? "Reviewed" : "Draft",
+              ),
+            ),
+            h(
+              "td",
+              { class: "mono" },
+              !document.usage?.generationAttempts
+                ? "—"
+                : document.usage.latestCostNanos === null
+                  ? "Cost unknown"
+                  : usd(document.usage.latestCostNanos),
+            ),
+            h(
+              "td",
+              { class: "mono" },
+              !document.usage?.generationAttempts
+                ? "—"
+                : `${usd(document.usage.knownCostNanos)}${document.usage.unknownCostAttempts ? " + unknown" : ""}`,
+            ),
+          ),
+        ),
+      ),
+    ];
+  }
+
+  private newDocumentScreen(): Node[] {
+    if (this.preparedDocument) return this.documentSubmissionScreen();
+    const patient = this.patient;
+    if (!patient) return this.patientsScreen();
+    const selected = this.documentDraft.noteIds.size;
+    const enabled =
+      this.documentDraft.title.trim().length > 0 &&
+      this.documentDraft.templateId > 0 &&
+      selected > 0 &&
+      !!this.documentSettings?.models?.some(
+        (model) => model.id === this.documentDraft.model,
+      );
+    return [
+      breadcrumb([
+        {
+          label: "Patients",
+          onSelect: () => void this.navigate({ name: "patients" }),
+        },
+        {
+          label: patient.name,
+          onSelect: () =>
+            void this.navigate({
+              name: "patient",
+              patientId: patient.id,
+              tab: "documents",
+            }),
+        },
+        { label: "Documents" },
+        { label: "New document" },
+      ]),
+      h(
+        "section",
+        { class: "patient-ribbon" },
+        pageHeader({
+          eyebrow: "Patient document",
+          title: ["New document"],
+          id: "new-document-title",
+          description: `${patient.name}${patient.patientReference ? ` · Patient number ${patient.patientReference}` : ""}`,
+        }),
+      ),
+      this.errorNotice(),
+      h(
+        "ol",
+        { class: "workflow-steps", "aria-label": "Document progress" },
+        h("li", { "aria-current": "step" }, "Choose notes"),
+        h("li", {}, "Review submission"),
+        h("li", {}, "Review document"),
+      ),
+      h(
+        "form",
+        {
+          class: "form-stack document-create",
+          onsubmit: (event: Event) => {
+            event.preventDefault();
+            if (
+              this.documentDraft.title.trim() &&
+              this.documentDraft.noteIds.size &&
+              this.documentDraft.templateId &&
+              this.documentDraft.model
+            )
+              void this.reviewDocumentSubmission();
+          },
+        },
+        h(
+          "label",
+          { class: "field" },
+          h("span", {}, "Document title"),
+          h("input", {
+            id: "document-title",
+            value: this.documentDraft.title,
+            maxlength: "160",
+            oninput: (event: Event) => {
+              this.documentDraft.title = (
+                event.target as HTMLInputElement
+              ).value;
+              this.updateDocumentChoices();
+            },
+          }),
+        ),
+        h(
+          "label",
+          { class: "field" },
+          h("span", {}, "Template"),
+          h(
+            "select",
+            {
+              value: String(this.documentDraft.templateId),
+              onchange: (event: Event) => {
+                this.documentDraft.templateId = Number(
+                  (event.target as HTMLSelectElement).value,
+                );
+              },
+            },
+            ...this.templates.map((template) =>
+              h(
+                "option",
+                {
+                  value: String(template.id),
+                  selected: template.id === this.documentDraft.templateId,
+                },
+                template.name,
+              ),
+            ),
+          ),
+        ),
+        h(
+          "label",
+          { class: "field" },
+          h("span", {}, "Model"),
+          modelSelect(
+            this.documentSettings?.models ?? [],
+            this.documentDraft.model,
+            "document-model",
+            (event) => {
+              this.documentDraft.model = (
+                event.target as HTMLSelectElement
+              ).value;
+              this.updateDocumentChoices();
+            },
+          ),
+          h(
+            "span",
+            { class: "hint", "data-model-hint": true },
+            this.documentDraft.model === this.documentSettings?.openaiModel
+              ? "Using your Settings default. Changing this selection affects only this document."
+              : "Override for this document only.",
+          ),
+        ),
+        h(
+          "p",
+          { class: "muted" },
+          "Estimated generation cost appears during submission review, before anything is sent.",
+        ),
+        h(
+          "fieldset",
+          { class: "choice-list" },
+          h("legend", { class: "section-title" }, "Select notes"),
+          ...this.notes.map((note) =>
+            h(
+              "label",
+              { class: "choice-row" },
+              h("input", {
+                type: "checkbox",
+                checked: this.documentDraft.noteIds.has(note.id),
+                onchange: (event: Event) => {
+                  if ((event.target as HTMLInputElement).checked)
+                    this.documentDraft.noteIds.add(note.id);
+                  else this.documentDraft.noteIds.delete(note.id);
+                  this.updateDocumentChoices();
+                },
+              }),
+              h("span", {}, note.title),
+              h("span", { class: "mono muted" }, formatDate(note.createdAt)),
+            ),
+          ),
+        ),
+        h(
+          "p",
+          { class: "meta muted", "data-selected-notes": true },
+          `${plural(selected, "note")} selected · Ordered oldest first`,
+        ),
+        !this.documentSettings?.clinicalSendingEnabled &&
+          h(
+            "p",
+            { class: "notice" },
+            h("strong", {}, "Clinical sending is not enabled. "),
+            "You can choose notes and inspect the workflow, but no clinical material can leave this Mac until the information-governance setup requirements are recorded.",
+          ),
+        h(
+          "div",
+          { class: "form-actions form-actions--split" },
+          h(
+            "button",
+            {
+              type: "button",
+              class: "button",
+              onclick: () =>
+                void this.navigate({
+                  name: "patient",
+                  patientId: patient.id,
+                  tab: "documents",
+                }),
+            },
+            "Cancel",
+          ),
+          h(
+            "button",
+            {
+              type: "submit",
+              class: "button button--primary",
+              disabled: !enabled,
+              "data-review-submission": true,
+            },
+            "Review submission",
+          ),
+        ),
+      ),
+    ];
+  }
+
+  private updateDocumentChoices(): void {
+    const submit = this.root.querySelector<HTMLButtonElement>(
+      "[data-review-submission]",
+    );
+    if (submit)
+      submit.disabled =
+        !this.documentDraft.title.trim() ||
+        !this.documentDraft.templateId ||
+        !this.documentDraft.noteIds.size ||
+        !this.documentSettings?.models?.some(
+          (model) => model.id === this.documentDraft.model,
+        );
+    const count = this.root.querySelector("[data-selected-notes]");
+    if (count)
+      count.textContent = `${plural(this.documentDraft.noteIds.size, "note")} selected · Ordered oldest first`;
+    const hint = this.root.querySelector("[data-model-hint]");
+    if (hint)
+      hint.textContent =
+        this.documentDraft.model === this.documentSettings?.openaiModel
+          ? "Using your Settings default. Changing this selection affects only this document."
+          : "Override for this document only.";
+  }
+
+  private async reviewDocumentSubmission(): Promise<void> {
+    const prepared = await this.perform("Preparing reviewed submission…", () =>
+      this.bridge.call<PreparedDocumentSubmission>(
+        "prepare_document_submission",
+        {
+          patientId: this.patient?.id,
+          templateId: this.documentDraft.templateId,
+          noteIds: [...this.documentDraft.noteIds],
+          model: this.documentDraft.model,
+          title: this.documentDraft.title,
+          documentId: this.documentId,
+        },
+      ),
+    );
+    if (prepared) {
+      this.preparedDocument = prepared;
+      this.documentId = prepared.documentId;
+    }
+    this.focusTarget = prepared ? "h1" : "[data-error]";
+    this.render();
+  }
+
+  private documentSubmissionScreen(): Node[] {
+    const prepared = this.preparedDocument!;
+    const generated = this.generatedDocument;
+    const model = this.documentSettings?.models.find(
+      (model) => model.id === prepared.model,
+    );
+    return [
+      pageHeader({
+        eyebrow: "Patient document",
+        title: [this.documentDraft.title],
+        description: generated
+          ? "Generated draft · Review before saving"
+          : "Review submission",
+      }),
+      this.errorNotice(),
+      h(
+        "p",
+        { class: "notice" },
+        `OpenAI · ${model?.name ?? prepared.model} · ${prepared.destination}`,
+      ),
+      generated
+        ? h(
+            "section",
+            { class: "form-stack" },
+            h(
+              "p",
+              { class: "muted" },
+              `Latest generation: ${generated.usage.latestCostNanos === null ? "Cost unknown" : usd(generated.usage.latestCostNanos)} · Total for this report: ${usd(generated.usage.knownCostNanos)}${generated.usage.unknownCostAttempts ? " + unknown costs" : ""}`,
+            ),
+            h(
+              "label",
+              { class: "field" },
+              h("span", {}, "Document text"),
+              h("textarea", {
+                rows: 18,
+                value: generated.text,
+                oninput: (event) => {
+                  generated.text = (event.target as HTMLTextAreaElement).value;
+                },
+              }),
+            ),
+            h(
+              "p",
+              { class: "hint" },
+              `${generated.exactReplacements} exact replacements restored on this Mac. This is a draft for your review.`,
+            ),
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button button--primary",
+                onclick: () => void this.saveGeneratedDraft(),
+              },
+              "Save draft",
+            ),
+          )
+        : h(
+            "section",
+            { class: "form-stack" },
+            h(
+              "p",
+              { class: "meta" },
+              `Estimated generation allowance: ${usd(prepared.estimate.costNanos)}`,
+            ),
+            h(
+              "p",
+              { class: "hint" },
+              `Calculated on this Mac using a conservative input allowance and up to ${prepared.estimate.outputTokenAllowance.toLocaleString()} output tokens, without cache discounts. This is an estimate, not a billing quote.`,
+            ),
+            h("h2", { class: "section-title" }, "Instructions sent to OpenAI"),
+            h("pre", { class: "pane" }, prepared.instructions),
+            h("h2", { class: "section-title" }, "Notes sent to OpenAI"),
+            h("pre", { class: "pane" }, prepared.input),
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button button--primary",
+                "data-send-document": true,
+                onclick: () => void this.generateDocument(),
+              },
+              "Send to OpenAI and generate",
+            ),
+          ),
+      h(
+        "button",
+        {
+          type: "button",
+          class: "button",
+          onclick: () => {
+            if (generated) this.requestLeave("regenerate");
+            else {
+              this.preparedDocument = null;
+              this.render();
+            }
+          },
+        },
+        generated ? "Prepare another generation" : "Change selection",
+      ),
+    ].filter((node): node is HTMLElement => node !== null);
+  }
+
+  private async generateDocument(): Promise<void> {
+    const prepared = this.preparedDocument;
+    if (!prepared) return;
+    const generated = await this.perform(
+      "Sending to OpenAI…",
+      () =>
+        this.bridge.call<GeneratedDocument>("submit_document_generation", {
+          operation: this.operation,
+          preparationId: prepared.id,
+        }),
+      "generation",
+    );
+    if (generated) this.generatedDocument = generated;
+    else this.preparedDocument = null; // A consumed approval can never be retried.
+    this.render();
+  }
+
+  private async saveGeneratedDraft(): Promise<void> {
+    const generated = this.generatedDocument;
+    if (!generated) return;
+    const saved = await this.perform("Saving document draft…", () =>
+      this.bridge.call("save_patient_document", {
+        id: generated.documentId,
+        patientId: this.patient?.id,
+        title: this.documentDraft.title,
+        templateId: this.documentDraft.templateId,
+        reviewed: false,
+        includeSignature: false,
+        sourceNoteIds: [...this.documentDraft.noteIds],
+        body: {
+          blocks: generated.text.split("\n").map((text) => ({
+            kind: "paragraph",
+            runs: [{ text, bold: false }],
+          })),
+        },
+      }),
+    );
+    if (saved && this.patient) {
+      this.generatedDocument = null;
+      this.preparedDocument = null;
+      await this.show(
+        { name: "patient", patientId: this.patient.id, tab: "documents" },
+        { flash: "Document draft saved." },
+      );
+    } else this.render();
+  }
+
+  // Document prompt templates ----------------------------------------------
+
+  private templatesScreen(): Node[] {
+    const filtered = this.templates.filter((template) =>
+      `${template.name} ${template.description}`
+        .toLocaleLowerCase()
+        .includes(this.templateQuery.toLocaleLowerCase()),
+    );
+    const form = this.templateEdit && this.templateForm(this.templateEdit);
+    return [
+      pageHeader({
+        eyebrow: "Global instructions",
+        title: ["Document prompt templates"],
+        id: "templates-title",
+        description:
+          "Instructions available for every patient. Editing a template does not change existing documents.",
+        actions: [
+          h(
+            "button",
+            {
+              type: "button",
+              class: "button button--primary",
+              "data-new-template": true,
+              onclick: () => {
+                this.templateEdit = {
+                  name: "",
+                  description: "",
+                  instructions: "",
+                };
+                this.focusTarget = "#template-name";
+                this.render();
+              },
+            },
+            "New template",
+          ),
+        ],
+      }),
+      this.errorNotice(),
+      this.flashNotice(),
+      h(
+        "section",
+        {},
+        toolbar(
+          searchForm({
+            label: "Search templates",
+            placeholder: "Search templates",
+            value: this.templateQuery,
+            onSearch: (value) => {
+              this.templateQuery = value;
+              this.render();
+            },
+          }),
+          searchStatus({
+            shown: filtered.length,
+            total: this.templates.length,
+            noun: "template",
+            query: this.templateQuery,
+            onClear: () => {
+              this.templateQuery = "";
+              this.render();
+            },
+          }),
+        ),
+        dataTable(
+          [
+            { label: "Name" },
+            { label: "Description" },
+            { label: "Status" },
+            { label: "Actions", hidden: true },
+          ],
+          filtered.map((template) =>
+            h(
+              "tr",
+              {},
+              h("td", {}, template.name),
+              h("td", {}, template.description),
+              h("td", {}, template.archived ? "Archived" : "Available"),
+              h(
+                "td",
+                { class: "actions" },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "link-button",
+                    onclick: () => {
+                      this.templateEdit = {
+                        id: template.id,
+                        name: template.name,
+                        description: template.description,
+                        instructions: template.instructions,
+                      };
+                      this.render();
+                    },
+                  },
+                  "Edit",
+                ),
+                " · ",
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "link-button",
+                    onclick: () => void this.duplicateTemplate(template.id),
+                  },
+                  "Duplicate",
+                ),
+                " · ",
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "link-button",
+                    onclick: () => void this.archiveTemplate(template),
+                  },
+                  template.archived ? "Restore" : "Archive",
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      form,
+    ].filter((node): node is HTMLElement => Boolean(node));
+  }
+
+  private templateForm(edit: TemplateEdit): HTMLElement {
+    const field = (
+      label: string,
+      value: string,
+      update: (value: string) => void,
+      multiline = false,
+    ) =>
+      h(
+        "label",
+        { class: "field" },
+        h("span", {}, label),
+        multiline
+          ? h("textarea", {
+              value,
+              rows: "8",
+              oninput: (event: Event) =>
+                update((event.target as HTMLTextAreaElement).value),
+            })
+          : h("input", {
+              id: label === "Name" ? "template-name" : undefined,
+              value,
+              oninput: (event: Event) =>
+                update((event.target as HTMLInputElement).value),
+            }),
+      );
+    return h(
+      "form",
+      {
+        class: "panel form-stack template-form",
+        onsubmit: (event: Event) => {
+          event.preventDefault();
+          void this.saveTemplate(edit);
+        },
+      },
+      h(
+        "h2",
+        { class: "section-title" },
+        edit.id ? "Edit template" : "New template",
+      ),
+      field("Name", edit.name, (value) => {
+        edit.name = value;
+      }),
+      field("Description", edit.description, (value) => {
+        edit.description = value;
+      }),
+      field(
+        "Instructions",
+        edit.instructions,
+        (value) => {
+          edit.instructions = value;
+        },
+        true,
+      ),
+      h(
+        "div",
+        { class: "form-actions form-actions--split" },
+        h(
+          "button",
+          {
+            type: "button",
+            class: "button",
+            onclick: () => {
+              this.templateEdit = null;
+              this.render();
+            },
+          },
+          "Cancel",
+        ),
+        h(
+          "button",
+          { type: "submit", class: "button button--primary" },
+          edit.id ? "Save changes" : "Create template",
+        ),
+      ),
+    );
+  }
+
+  private async saveTemplate(edit: TemplateEdit): Promise<void> {
+    const command = edit.id
+      ? "update_document_template"
+      : "create_document_template";
+    const result = await this.perform("Saving document prompt template…", () =>
+      this.bridge.call<DocumentTemplate>(command, { ...edit }),
+    );
+    if (!result) {
+      this.render();
+      return;
+    }
+    this.templateEdit = null;
+    await this.load({ name: "templates" });
+    this.message = edit.id ? "Template updated." : "Template created.";
+    this.render();
+  }
+
+  private async duplicateTemplate(id: number): Promise<void> {
+    const result = await this.perform("Duplicating template…", () =>
+      this.bridge.call<DocumentTemplate>("duplicate_document_template", { id }),
+    );
+    if (result) {
+      await this.load({ name: "templates" });
+      this.message = "Template duplicated.";
+    }
+    this.render();
+  }
+
+  private async archiveTemplate(template: DocumentTemplate): Promise<void> {
+    const result = await this.perform(
+      template.archived ? "Restoring template…" : "Archiving template…",
+      () =>
+        this.bridge.call<DocumentTemplate>("set_document_template_archived", {
+          id: template.id,
+          archived: !template.archived,
+        }),
+    );
+    if (result) {
+      await this.load({ name: "templates" });
+      this.message = template.archived
+        ? "Template restored."
+        : "Template archived.";
+    }
+    this.render();
+  }
+
   // Redactions --------------------------------------------------------------
 
   private patientRedactionsTab(patient: PatientView): Node[] {
@@ -2085,7 +2976,250 @@ export class TextReviewPage {
         ),
         controls,
       ),
+      h(
+        "form",
+        {
+          class: "panel form-stack settings-documents",
+          "data-document-settings": true,
+          onsubmit: (event: Event) => {
+            event.preventDefault();
+            void this.saveDocumentSettings(
+              event.currentTarget as HTMLFormElement,
+            );
+          },
+        },
+        h("h2", { class: "section-title" }, "OpenAI"),
+        h(
+          "div",
+          { class: "settings-row" },
+          h(
+            "div",
+            {},
+            h("strong", {}, "API key"),
+            h(
+              "p",
+              { class: "muted" },
+              this.documentSettings?.apiKeyConfigured
+                ? "Saved in macOS Keychain"
+                : "Not configured",
+            ),
+          ),
+          h("input", {
+            name: "apiKey",
+            type: "password",
+            autocomplete: "off",
+            placeholder: this.documentSettings?.apiKeyConfigured
+              ? "Enter a replacement key"
+              : "Enter API key",
+            "aria-label": "OpenAI API key",
+          }),
+          this.documentSettings?.apiKeyConfigured &&
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button button--compact",
+                onclick: () => void this.removeOpenAIKey(),
+              },
+              "Remove key",
+            ),
+          this.documentSettings?.apiKeyConfigured &&
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button button--compact",
+                onclick: () => void this.testOpenAIConnection(),
+              },
+              "Test connection",
+            ),
+        ),
+        h(
+          "label",
+          { class: "field" },
+          h("span", {}, "Default model"),
+          modelSelect(
+            this.documentSettings?.models ?? [],
+            this.documentSettings?.openaiModel ?? "",
+            "model",
+          ),
+          h(
+            "span",
+            { class: "hint" },
+            "Used for new documents. Each document can choose a different model.",
+          ),
+        ),
+        h(
+          "div",
+          { class: "muted" },
+          ...(this.documentSettings?.models ?? []).map((model) =>
+            h(
+              "p",
+              {},
+              `${model.name}: ${modelPrices(model)}. Prices checked ${model.pricingCheckedAt}.`,
+            ),
+          ),
+        ),
+        h(
+          "p",
+          { class: "notice" },
+          h("strong", {}, "Clinical sending: "),
+          this.documentSettings?.clinicalSendingEnabled
+            ? "Enabled for the approved configuration."
+            : "Not enabled — setup requirements outstanding.",
+          " Saving an API key does not enable submissions.",
+        ),
+        h("h2", { class: "section-title" }, "Clinician details"),
+        h(
+          "label",
+          { class: "field" },
+          h("span", {}, "Display name"),
+          h("input", {
+            name: "displayName",
+            value: this.documentSettings?.displayName ?? "",
+          }),
+        ),
+        h(
+          "label",
+          { class: "field" },
+          h("span", {}, "Role"),
+          h("input", {
+            name: "role",
+            value: this.documentSettings?.role ?? "",
+          }),
+        ),
+        h(
+          "label",
+          { class: "field" },
+          h("span", {}, "Qualifications"),
+          h("input", {
+            name: "qualifications",
+            value: this.documentSettings?.qualifications ?? "",
+          }),
+        ),
+        h("h2", { class: "section-title" }, "Signature"),
+        h(
+          "div",
+          {
+            class: "signature-pad",
+            role: "img",
+            "aria-label": this.documentSettings?.hasSignature
+              ? "A saved clinician signature is available"
+              : "Signature drawing area",
+          },
+          this.documentSettings?.hasSignature
+            ? "Saved signature"
+            : "Draw with mouse or trackpad",
+        ),
+        h(
+          "p",
+          { class: "muted" },
+          "Your details and signature are added on this Mac after generation.",
+        ),
+        h(
+          "div",
+          { class: "form-actions" },
+          h(
+            "button",
+            { type: "submit", class: "button button--primary" },
+            "Save changes",
+          ),
+        ),
+      ),
+      h(
+        "section",
+        { class: "panel form-stack", "aria-label": "Usage and costs" },
+        h("h2", { class: "section-title" }, "Usage and costs"),
+        h(
+          "label",
+          { class: "field" },
+          h("span", {}, "Period"),
+          h(
+            "select",
+            {
+              "data-usage-period": true,
+              onchange: (event) => {
+                this.usagePeriod = (event.target as HTMLSelectElement).value as
+                  | "month"
+                  | "all";
+                void this.refreshUsage();
+              },
+            },
+            h(
+              "option",
+              { value: "month", selected: this.usagePeriod === "month" },
+              "This month",
+            ),
+            h(
+              "option",
+              { value: "all", selected: this.usagePeriod === "all" },
+              "All time",
+            ),
+          ),
+        ),
+        this.usage
+          ? usageTable(this.usage)
+          : h(
+              "p",
+              { class: "muted" },
+              "Usage unavailable. Reopen Settings to retry.",
+            ),
+      ),
     ].filter((node): node is HTMLElement => node !== null);
+  }
+  private async refreshUsage(): Promise<void> {
+    this.usage = null;
+    const usage = await this.perform("Loading usage…", () =>
+      this.bridge.call<UsageSummary>(
+        "document_usage",
+        this.usagePeriod === "month" ? monthRange() : {},
+      ),
+    );
+    if (usage) this.usage = usage;
+    this.focusTarget = "[data-usage-period]";
+    this.render();
+  }
+  private async saveDocumentSettings(form: HTMLFormElement): Promise<void> {
+    const data = new FormData(form);
+    const apiKey = String(data.get("apiKey") ?? "").trim();
+    const result = await this.perform("Saving settings…", () =>
+      this.bridge.call<DocumentSettings>("save_document_settings", {
+        displayName: String(data.get("displayName") ?? ""),
+        role: String(data.get("role") ?? ""),
+        qualifications: String(data.get("qualifications") ?? ""),
+        openaiModel: String(data.get("model") ?? ""),
+        apiKey: apiKey || undefined,
+        removeSignature: false,
+      }),
+    );
+    if (result) {
+      this.documentSettings = result;
+      this.message = "Changes saved.";
+    }
+    this.render();
+  }
+  private async removeOpenAIKey(): Promise<void> {
+    const result = await this.perform("Removing OpenAI API key…", () =>
+      this.bridge.call<DocumentSettings>("remove_openai_api_key"),
+    );
+    if (result) {
+      this.documentSettings = result;
+      this.message = "OpenAI API key removed.";
+    }
+    this.render();
+  }
+  private async testOpenAIConnection(): Promise<void> {
+    const result = await this.perform(
+      "Testing OpenAI connection…",
+      async () => {
+        await this.bridge.call("test_openai_connection");
+        return true;
+      },
+    );
+    if (result)
+      this.message =
+        "OpenAI connection confirmed without sending clinical material.";
+    this.render();
   }
   private async removeModel(): Promise<void> {
     this.confirming = null;
@@ -2182,8 +3316,16 @@ export class TextReviewPage {
       h(
         "div",
         {},
-        h("strong", {}, "Discard this session?"),
-        " The imported document, source text and review decisions will be cleared.",
+        h(
+          "strong",
+          {},
+          this.generatedDocument
+            ? "Discard this generated draft?"
+            : "Discard this session?",
+        ),
+        this.generatedDocument
+          ? " Unsaved document text will be cleared. Generation costs remain in your usage totals."
+          : " The imported document, source text and review decisions will be cleared.",
       ),
       h(
         "div",

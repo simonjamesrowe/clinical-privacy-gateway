@@ -1,5 +1,14 @@
 use clinicians_veil_core::documents::{DocumentFormat, DocumentMetadata, OriginalDocument};
-use clinicians_veil_core::privacy::{Category, PrivacyResult};
+mod usage;
+
+use clinicians_veil_core::document_usage::{document_model, UsageSummary, DEFAULT_DOCUMENT_MODEL};
+use clinicians_veil_core::{
+    document_generation::{
+        ClinicianProfile, DocumentBody, DocumentTemplate, PatientDocument, PreparedSubmission,
+        SubmissionNote,
+    },
+    privacy::{Category, PrivacyResult},
+};
 use getrandom::fill;
 use rusqlite::{params, Connection, ErrorCode, OpenFlags, OptionalExtension};
 use security_framework::os::macos::keychain::SecKeychain;
@@ -14,12 +23,15 @@ use std::{
 
 const KEYCHAIN_SERVICE: &str = "dev.simonrowe.cliniciansveil";
 const KEYCHAIN_ACCOUNT: &str = "encrypted-note-library-key";
+const OPENAI_KEYCHAIN_ACCOUNT: &str = "openai-api-key";
 const STORAGE_ERROR: &str =
     "The encrypted note library is unavailable. Reopen the app and try again.";
 const STORAGE_CONFLICT: &str = "A redaction with that phrase and category already exists.";
 const PATIENT_CONFLICT: &str = "A patient with that name already exists.";
 const PATIENT_UNAVAILABLE: &str = "This patient is no longer available.";
 const REDACTION_UNAVAILABLE: &str = "This redaction is no longer available.";
+const TEMPLATE_UNAVAILABLE: &str = "This document prompt template is no longer available.";
+const DOCUMENT_UNAVAILABLE: &str = "This document is no longer available.";
 
 #[derive(Clone)]
 pub struct Storage {
@@ -48,13 +60,15 @@ pub struct PatientView {
     pub patient_reference: Option<String>,
     pub note_count: i64,
     pub redaction_count: i64,
+    pub document_count: i64,
 }
 
 /// Patient columns in the order `patient_view` reads them. The counts drive the
 /// patient table and the patient workspace tab labels.
 const PATIENT_COLUMNS: &str = "patients.id, patients.name, patients.patient_reference,
     (SELECT COUNT(*) FROM notes WHERE notes.patient_id = patients.id),
-    (SELECT COUNT(*) FROM patient_mappings WHERE patient_mappings.patient_id = patients.id)";
+    (SELECT COUNT(*) FROM patient_mappings WHERE patient_mappings.patient_id = patients.id),
+    (SELECT COUNT(*) FROM patient_documents WHERE patient_documents.patient_id = patients.id)";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +83,31 @@ pub struct NoteView {
     pub reviewed_text: String,
     pub provenance: String,
     pub created_at: i64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSummary {
+    pub usage: UsageSummary,
+    pub id: i64,
+    pub patient_id: i64,
+    pub title: String,
+    pub template_name: String,
+    pub revision: i64,
+    pub reviewed: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClinicianProfileView {
+    pub display_name: String,
+    pub role: String,
+    pub qualifications: String,
+    pub has_signature: bool,
+    pub openai_model: String,
+    pub clinical_sending_enabled: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -139,6 +178,7 @@ impl Storage {
                source_text TEXT,
                reviewed_text TEXT NOT NULL,
                provenance TEXT NOT NULL,
+               revision INTEGER NOT NULL DEFAULT 1,
                created_at INTEGER NOT NULL
              );
              CREATE VIRTUAL TABLE IF NOT EXISTS note_search USING fts5(title, patient_reference, reviewed_text);
@@ -171,8 +211,89 @@ impl Storage {
                updated_at INTEGER NOT NULL,
                UNIQUE(normalized_phrase, category)
              );
+             CREATE TABLE IF NOT EXISTS document_templates (
+               id INTEGER PRIMARY KEY,
+               version INTEGER NOT NULL,
+               name TEXT NOT NULL,
+               description TEXT NOT NULL,
+               instructions TEXT NOT NULL,
+               archived INTEGER NOT NULL DEFAULT 0,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS clinician_profile (
+               singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+               display_name TEXT NOT NULL DEFAULT '',
+               role TEXT NOT NULL DEFAULT '',
+               qualifications TEXT NOT NULL DEFAULT '',
+               signature BLOB,
+               openai_model TEXT NOT NULL DEFAULT '',
+               clinical_sending_enabled INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE IF NOT EXISTS patient_documents (
+               id INTEGER PRIMARY KEY,
+               patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+               title TEXT NOT NULL,
+               template_id INTEGER NOT NULL,
+               template_name TEXT NOT NULL,
+               template_version INTEGER NOT NULL,
+               body TEXT NOT NULL,
+               revision INTEGER NOT NULL,
+               reviewed INTEGER NOT NULL,
+               include_signature INTEGER NOT NULL,
+               clinician_snapshot TEXT,
+               signature_snapshot BLOB,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS document_sources (
+               document_id INTEGER NOT NULL REFERENCES patient_documents(id) ON DELETE CASCADE,
+               note_id INTEGER REFERENCES notes(id) ON DELETE SET NULL,
+               note_created_at INTEGER NOT NULL,
+               deleted_warning INTEGER NOT NULL DEFAULT 0,
+               PRIMARY KEY(document_id, note_id)
+             );
+             CREATE TABLE IF NOT EXISTS prepared_submissions (
+               id TEXT PRIMARY KEY,
+               document_id INTEGER REFERENCES patient_documents(id) ON DELETE CASCADE,
+               template_id INTEGER NOT NULL,
+               template_version INTEGER NOT NULL,
+               model TEXT NOT NULL,
+               destination TEXT NOT NULL,
+               purpose TEXT NOT NULL,
+               instructions TEXT NOT NULL,
+               input TEXT NOT NULL,
+               payload_digest TEXT NOT NULL,
+               restoration_json TEXT NOT NULL,
+               created_at INTEGER NOT NULL,
+               consumed_at INTEGER
+             );
+             CREATE TABLE IF NOT EXISTS submission_outcomes (
+               id INTEGER PRIMARY KEY,
+               preparation_id TEXT NOT NULL REFERENCES prepared_submissions(id) ON DELETE CASCADE,
+               attempted_at INTEGER NOT NULL,
+               destination TEXT NOT NULL,
+               purpose TEXT NOT NULL,
+               payload_digest TEXT NOT NULL,
+               outcome TEXT NOT NULL
+             );
+             CREATE TRIGGER IF NOT EXISTS detach_deleted_note_documents
+             BEFORE DELETE ON notes BEGIN
+               UPDATE document_sources SET deleted_warning = 1 WHERE note_id = OLD.id;
+               DELETE FROM prepared_submissions
+                 WHERE document_id IN (SELECT document_id FROM document_sources WHERE note_id = OLD.id);
+             END;
+             INSERT OR IGNORE INTO clinician_profile(singleton) VALUES (1);
              INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);"
         ).map_err(|_| STORAGE_ERROR)?;
+        seed_templates(&mut connection)?;
+        usage::migrate(&mut connection)?;
+        connection
+            .execute(
+                "UPDATE clinician_profile SET openai_model = ?1 WHERE openai_model = ''",
+                [DEFAULT_DOCUMENT_MODEL],
+            )
+            .map_err(|_| STORAGE_ERROR)?;
         let has_patient_id = connection
             .prepare("PRAGMA table_info(notes)")
             .map_err(|_| STORAGE_ERROR)?
@@ -223,6 +344,21 @@ impl Storage {
             .prepare("SELECT note_id, name, format, byte_length, bytes FROM note_documents LIMIT 0")
             .map_err(|_| STORAGE_ERROR)?;
         transaction.commit().map_err(|_| STORAGE_ERROR)?;
+        let has_revision = connection
+            .prepare("PRAGMA table_info(notes)")
+            .map_err(|_| STORAGE_ERROR)?
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|_| STORAGE_ERROR)?
+            .filter_map(Result::ok)
+            .any(|name| name == "revision");
+        if !has_revision {
+            connection
+                .execute(
+                    "ALTER TABLE notes ADD COLUMN revision INTEGER NOT NULL DEFAULT 1",
+                    [],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+        }
         task(&mut connection)
     }
 
@@ -319,7 +455,7 @@ impl Storage {
             let transaction = connection.transaction().map_err(|_| STORAGE_ERROR)?;
             let changed = transaction
                 .execute(
-                    "UPDATE notes SET patient_id = ?1, title = ?2, patient_reference = ?3, source_text = ?4, reviewed_text = ?5, provenance = ?6 WHERE id = ?7",
+                    "UPDATE notes SET patient_id = ?1, title = ?2, patient_reference = ?3, source_text = ?4, reviewed_text = ?5, provenance = ?6, revision = revision + 1 WHERE id = ?7",
                     params![patient_id, title, patient_reference, source_text, reviewed_text, provenance, id],
                 )
                 .map_err(|_| STORAGE_ERROR)?;
@@ -521,6 +657,482 @@ impl Storage {
         self.with_connection(|connection| select_patient(connection, id))
     }
 
+    pub fn templates(&self, include_archived: bool) -> PrivacyResult<Vec<DocumentTemplate>> {
+        self.with_connection(|connection| {
+            let mut statement = connection
+                .prepare(
+                    "SELECT id, version, name, description, instructions, archived, created_at, updated_at
+                     FROM document_templates WHERE ?1 OR archived = 0 ORDER BY archived, name COLLATE NOCASE",
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            let rows = statement
+                .query_map([include_archived], template_view)
+                .map_err(|_| STORAGE_ERROR)?;
+            rows.map(|row| row.map_err(|_| STORAGE_ERROR)).collect()
+        })
+    }
+
+    pub fn template(&self, id: i64) -> PrivacyResult<DocumentTemplate> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT id, version, name, description, instructions, archived, created_at, updated_at
+                     FROM document_templates WHERE id = ?1",
+                    [id],
+                    template_view,
+                )
+                .optional()
+                .map_err(|_| STORAGE_ERROR)?
+                .ok_or(TEMPLATE_UNAVAILABLE)
+        })
+    }
+
+    pub fn create_template(
+        &self,
+        name: &str,
+        description: &str,
+        instructions: &str,
+    ) -> PrivacyResult<DocumentTemplate> {
+        let (name, description, instructions) = template_fields(name, description, instructions)?;
+        let timestamp = now()?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO document_templates(version, name, description, instructions, archived, created_at, updated_at)
+                     VALUES (1, ?1, ?2, ?3, 0, ?4, ?4)",
+                    params![name, description, instructions, timestamp],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            select_template(connection, connection.last_insert_rowid())
+        })
+    }
+
+    pub fn update_template(
+        &self,
+        id: i64,
+        name: &str,
+        description: &str,
+        instructions: &str,
+    ) -> PrivacyResult<DocumentTemplate> {
+        let (name, description, instructions) = template_fields(name, description, instructions)?;
+        let timestamp = now()?;
+        self.with_connection(|connection| {
+            let changed = connection
+                .execute(
+                    "UPDATE document_templates SET version = version + 1, name = ?1, description = ?2,
+                     instructions = ?3, updated_at = ?4 WHERE id = ?5",
+                    params![name, description, instructions, timestamp, id],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            if changed == 0 {
+                return Err(TEMPLATE_UNAVAILABLE);
+            }
+            select_template(connection, id)
+        })
+    }
+
+    pub fn duplicate_template(&self, id: i64) -> PrivacyResult<DocumentTemplate> {
+        let source = self.template(id)?;
+        self.create_template(
+            &format!("{} copy", source.name),
+            &source.description,
+            &source.instructions,
+        )
+    }
+
+    pub fn set_template_archived(
+        &self,
+        id: i64,
+        archived: bool,
+    ) -> PrivacyResult<DocumentTemplate> {
+        let timestamp = now()?;
+        self.with_connection(|connection| {
+            let changed = connection
+                .execute(
+                    "UPDATE document_templates SET archived = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![archived, timestamp, id],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            if changed == 0 {
+                return Err(TEMPLATE_UNAVAILABLE);
+            }
+            select_template(connection, id)
+        })
+    }
+
+    pub fn clinician_profile(&self) -> PrivacyResult<ClinicianProfileView> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT display_name, role, qualifications, signature IS NOT NULL,
+                            openai_model, clinical_sending_enabled
+                     FROM clinician_profile WHERE singleton = 1",
+                    [],
+                    |row| {
+                        Ok(ClinicianProfileView {
+                            display_name: row.get(0)?,
+                            role: row.get(1)?,
+                            qualifications: row.get(2)?,
+                            has_signature: row.get(3)?,
+                            openai_model: row.get(4)?,
+                            clinical_sending_enabled: row.get(5)?,
+                        })
+                    },
+                )
+                .map_err(|_| STORAGE_ERROR)
+        })
+    }
+
+    pub fn save_clinician_profile(
+        &self,
+        display_name: &str,
+        role: &str,
+        qualifications: &str,
+        signature: Option<&[u8]>,
+        remove_signature: bool,
+        openai_model: &str,
+    ) -> PrivacyResult<ClinicianProfileView> {
+        let display_name = normalise_limited(
+            display_name,
+            120,
+            "Use at most 120 characters for the display name.",
+        )?;
+        let role = normalise_limited(role, 120, "Use at most 120 characters for the role.")?;
+        let qualifications = normalise_limited(
+            qualifications,
+            240,
+            "Use at most 240 characters for qualifications.",
+        )?;
+        let openai_model = normalise_limited(
+            openai_model,
+            120,
+            "Use at most 120 characters for the model.",
+        )?;
+        document_model(&openai_model)?;
+        if signature.is_some_and(|bytes| bytes.len() > 2 * 1024 * 1024) {
+            return Err("The signature drawing is too large to save.");
+        }
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "UPDATE clinician_profile SET display_name = ?1, role = ?2, qualifications = ?3,
+                     signature = CASE WHEN ?4 THEN NULL WHEN ?5 IS NOT NULL THEN ?5 ELSE signature END,
+                     openai_model = ?6 WHERE singleton = 1",
+                    params![display_name, role, qualifications, remove_signature, signature, openai_model],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            Ok(())
+        })?;
+        self.clinician_profile()
+    }
+
+    pub fn documents(&self, patient_id: i64) -> PrivacyResult<Vec<DocumentSummary>> {
+        self.with_connection(|connection| {
+            let mut statement = connection
+                .prepare(
+                    "SELECT id, patient_id, title, template_name, revision, reviewed, created_at, updated_at
+                     FROM patient_documents WHERE patient_id = ?1 ORDER BY updated_at DESC, id DESC",
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            let rows = statement
+                .query_map([patient_id], document_summary)
+                .map_err(|_| STORAGE_ERROR)?;
+            let mut documents: Vec<DocumentSummary> = rows.map(|row| row.map_err(|_| STORAGE_ERROR)).collect::<PrivacyResult<_>>()?;
+            for document in &mut documents {
+                document.usage = usage::summary(connection, None, None, Some(document.id))?;
+            }
+            Ok(documents)
+        })
+    }
+
+    pub fn patient_document(&self, id: i64) -> PrivacyResult<PatientDocument> {
+        self.with_connection(|connection| select_document(connection, id))
+    }
+
+    pub fn save_document(
+        &self,
+        id: Option<i64>,
+        patient_id: i64,
+        title: &str,
+        template_id: i64,
+        body: &DocumentBody,
+        reviewed: bool,
+        include_signature: bool,
+        source_note_ids: &[i64],
+    ) -> PrivacyResult<PatientDocument> {
+        let title = normalise_required(
+            title,
+            160,
+            "Enter a document title.",
+            "Use at most 160 characters for the document title.",
+        )?;
+        body.validate()?;
+        if reviewed && body.plain_text().contains("⟪CV_") {
+            return Err(
+                "Resolve or remove every unknown placeholder before marking the document reviewed.",
+            );
+        }
+        let template = self.template(template_id)?;
+        let timestamp = now()?;
+        let body_json = serde_json::to_string(body).map_err(|_| STORAGE_ERROR)?;
+        self.with_connection(|connection| {
+            let transaction = connection.transaction().map_err(|_| STORAGE_ERROR)?;
+            let profile: (String, String, String, Option<Vec<u8>>) = transaction
+                .query_row(
+                    "SELECT display_name, role, qualifications, signature FROM clinician_profile WHERE singleton = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            let clinician = ClinicianProfile {
+                display_name: profile.0,
+                role: profile.1,
+                qualifications: profile.2,
+                has_signature: profile.3.is_some(),
+            };
+            let clinician_json = serde_json::to_string(&clinician).map_err(|_| STORAGE_ERROR)?;
+            let document_id = if let Some(id) = id {
+                let changed = transaction
+                    .execute(
+                        "UPDATE patient_documents SET title = ?1, body = ?2, revision = revision + 1,
+                         reviewed = ?3, include_signature = ?4,
+                         clinician_snapshot = CASE WHEN ?3 THEN ?5 ELSE clinician_snapshot END,
+                         signature_snapshot = CASE WHEN ?3 AND ?4 THEN ?6 WHEN ?3 THEN NULL ELSE signature_snapshot END,
+                         updated_at = ?7 WHERE id = ?8 AND patient_id = ?9",
+                        params![title, body_json, reviewed, include_signature, clinician_json, profile.3, timestamp, id, patient_id],
+                    )
+                    .map_err(|_| STORAGE_ERROR)?;
+                if changed == 0 {
+                    return Err(DOCUMENT_UNAVAILABLE);
+                }
+                id
+            } else {
+                transaction
+                    .execute(
+                        "INSERT INTO patient_documents(patient_id, title, template_id, template_name, template_version,
+                         body, revision, reviewed, include_signature, clinician_snapshot, signature_snapshot, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?11, ?11)",
+                        params![patient_id, title, template.id, template.name, template.version, body_json, reviewed,
+                                include_signature, reviewed.then_some(clinician_json),
+                                (reviewed && include_signature).then_some(profile.3).flatten(), timestamp],
+                    )
+                    .map_err(|_| STORAGE_ERROR)?;
+                transaction.last_insert_rowid()
+            };
+            transaction
+                .execute("DELETE FROM document_sources WHERE document_id = ?1", [document_id])
+                .map_err(|_| STORAGE_ERROR)?;
+            for note_id in source_note_ids {
+                let note_created_at: i64 = transaction
+                    .query_row(
+                        "SELECT created_at FROM notes WHERE id = ?1 AND patient_id = ?2",
+                        params![note_id, patient_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|_| STORAGE_ERROR)?
+                    .ok_or("Select only completed notes belonging to this patient.")?;
+                transaction
+                    .execute(
+                        "INSERT INTO document_sources(document_id, note_id, note_created_at) VALUES (?1, ?2, ?3)",
+                        params![document_id, note_id, note_created_at],
+                    )
+                    .map_err(|_| STORAGE_ERROR)?;
+            }
+            let document = select_document(&transaction, document_id)?;
+            transaction.commit().map_err(|_| STORAGE_ERROR)?;
+            Ok(document)
+        })
+    }
+
+    pub fn delete_document(&self, id: i64) -> PrivacyResult<()> {
+        self.with_connection(|connection| {
+            let deleted = connection
+                .execute("DELETE FROM patient_documents WHERE id = ?1", [id])
+                .map_err(|_| STORAGE_ERROR)?;
+            if deleted == 0 {
+                return Err(DOCUMENT_UNAVAILABLE);
+            }
+            Ok(())
+        })
+    }
+
+    /// Builds and persists the exact reviewed payload only after the
+    /// governance-backed sending gate passes. The frontend supplies IDs, never
+    /// clinical text or provider request fields.
+    pub fn prepare_document_submission(
+        &self,
+        patient_id: i64,
+        template_id: i64,
+        note_ids: &[i64],
+        model: &str,
+        title: &str,
+        document_id: Option<i64>,
+    ) -> PrivacyResult<PreparedSubmission> {
+        let profile = self.clinician_profile()?;
+        if !profile.clinical_sending_enabled {
+            return Err("Clinical sending is not enabled. Complete the information-governance setup requirements first.");
+        }
+        if !openai_key_configured() {
+            return Err("Configure the OpenAI API key in Settings first.");
+        }
+        document_model(model)?;
+        let template = self.template(template_id)?;
+        let owned_notes = self.with_connection(|connection| {
+            let mut notes = Vec::with_capacity(note_ids.len());
+            for id in note_ids {
+                let note = connection
+                    .query_row(
+                        "SELECT id, revision, reviewed_text, provenance, created_at FROM notes WHERE id = ?1 AND patient_id = ?2",
+                        params![id, patient_id],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, i64>(4)?)),
+                    )
+                    .optional()
+                    .map_err(|_| STORAGE_ERROR)?
+                    .ok_or("Select only completed notes belonging to this patient.")?;
+                notes.push(note);
+            }
+            notes.sort_by_key(|note| (note.4, note.0));
+            notes.dedup_by_key(|note| note.0);
+            Ok(notes)
+        })?;
+        let notes = owned_notes
+            .iter()
+            .map(|note| SubmissionNote {
+                id: note.0,
+                revision: note.1,
+                reviewed_text: &note.2,
+                provenance: &note.3,
+            })
+            .collect::<Vec<_>>();
+        let mut nonce = [0_u8; 16];
+        fill(&mut nonce).map_err(|_| STORAGE_ERROR)?;
+        let prepared = clinicians_veil_core::document_generation::prepare_submission(
+            &hex(&nonce),
+            &template,
+            model,
+            &notes,
+        )?;
+        let document_id = if let Some(id) = document_id {
+            let document = self.patient_document(id)?;
+            if document.patient_id != patient_id {
+                return Err(DOCUMENT_UNAVAILABLE);
+            }
+            id
+        } else {
+            self.save_document(
+                None,
+                patient_id,
+                title,
+                template_id,
+                &DocumentBody::from_plain_text(""),
+                false,
+                false,
+                note_ids,
+            )?
+            .id
+        };
+        let encoded = serde_json::to_string(&prepared).map_err(|_| STORAGE_ERROR)?;
+        let created_at = now()?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO prepared_submissions(id, document_id, template_id, template_version, model,
+                     destination, purpose, instructions, input, payload_digest, restoration_json, created_at)
+                     VALUES (?1, ?12, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    params![prepared.id, prepared.template_id, prepared.template_version, prepared.model,
+                            prepared.destination, prepared.purpose, prepared.instructions, prepared.input,
+                            prepared.payload_digest, encoded, created_at, document_id],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            Ok(())
+        })?;
+        Ok(prepared)
+    }
+
+    pub fn prepared_document_id(&self, preparation_id: &str) -> PrivacyResult<i64> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT document_id FROM prepared_submissions WHERE id = ?1",
+                    [preparation_id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| STORAGE_ERROR)
+        })
+    }
+
+    pub fn consume_prepared_submission(&self, id: &str) -> PrivacyResult<PreparedSubmission> {
+        self.with_connection(|connection| {
+            let transaction = connection.transaction().map_err(|_| STORAGE_ERROR)?;
+            let encoded: String = transaction
+                .query_row(
+                    "SELECT restoration_json FROM prepared_submissions WHERE id = ?1 AND consumed_at IS NULL",
+                    [id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|_| STORAGE_ERROR)?
+                .ok_or("Review and prepare this submission again.")?;
+            let prepared: PreparedSubmission = serde_json::from_str(&encoded).map_err(|_| STORAGE_ERROR)?;
+            let enabled: bool = transaction
+                .query_row(
+                    "SELECT clinical_sending_enabled FROM clinician_profile WHERE singleton = 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            document_model(&prepared.model)?;
+            if !enabled {
+                return Err("The sending configuration changed. Review and prepare this submission again.");
+            }
+            let version: Option<i64> = transaction
+                .query_row("SELECT version FROM document_templates WHERE id = ?1 AND archived = 0", [prepared.template_id], |row| row.get(0))
+                .optional()
+                .map_err(|_| STORAGE_ERROR)?;
+            if version != Some(prepared.template_version) {
+                return Err("The document prompt template changed. Review and prepare this submission again.");
+            }
+            for (note_id, revision) in &prepared.source_revisions {
+                let current: Option<i64> = transaction
+                    .query_row("SELECT revision FROM notes WHERE id = ?1", [note_id], |row| row.get(0))
+                    .optional()
+                    .map_err(|_| STORAGE_ERROR)?;
+                if current != Some(*revision) {
+                    return Err("A selected note changed. Review and prepare this submission again.");
+                }
+            }
+            let consumed_at = now()?;
+            transaction
+                .execute(
+                    "UPDATE prepared_submissions SET consumed_at = ?1 WHERE id = ?2 AND consumed_at IS NULL",
+                    params![consumed_at, id],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            usage::begin_attempt(&transaction, &prepared)?;
+            transaction.commit().map_err(|_| STORAGE_ERROR)?;
+            Ok(prepared)
+        })
+    }
+
+    pub fn record_submission_outcome(
+        &self,
+        prepared: &PreparedSubmission,
+        outcome: &str,
+    ) -> PrivacyResult<()> {
+        let attempted_at = now()?;
+        self.with_connection(|connection| {
+            connection
+                .execute(
+                    "INSERT INTO submission_outcomes(preparation_id, attempted_at, destination, purpose, payload_digest, outcome)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![prepared.id, attempted_at, prepared.destination, prepared.purpose, prepared.payload_digest, outcome],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            Ok(())
+        })
+    }
+
     /// Changes only what an all-patients redaction is replaced with. Its phrase
     /// and category decide what it matches, so they stay fixed; redactions are
     /// created during review and are not deleted from the library.
@@ -700,7 +1312,118 @@ fn patient_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<PatientView> {
         patient_reference: row.get(2)?,
         note_count: row.get(3)?,
         redaction_count: row.get(4)?,
+        document_count: row.get(5)?,
     })
+}
+
+fn seed_templates(connection: &mut Connection) -> PrivacyResult<()> {
+    let existing: i64 = connection
+        .query_row("SELECT COUNT(*) FROM document_templates", [], |row| {
+            row.get(0)
+        })
+        .map_err(|_| STORAGE_ERROR)?;
+    if existing != 0 {
+        return Ok(());
+    }
+    let timestamp = now()?;
+    let starters = [
+        (
+            "GP letter",
+            "Summarise care for the GP",
+            "Write a letter using only the supplied notes. Include presentation, relevant history, progress, and next steps. Use professional British English. Do not invent missing details.",
+        ),
+        (
+            "Referral letter",
+            "Present the reason for referral",
+            "Write a referral letter using only the supplied notes. Explain the reason for referral, relevant history, current presentation, and requested next steps. Use professional British English. Do not invent missing details.",
+        ),
+        (
+            "Progress report",
+            "Summarise progress and next steps",
+            "Write a progress report using only the supplied notes. Summarise presentation, work completed, progress, remaining needs, and next steps. Use professional British English. Do not invent missing details.",
+        ),
+    ];
+    for (name, description, instructions) in starters {
+        connection
+            .execute(
+                "INSERT INTO document_templates(version, name, description, instructions, archived, created_at, updated_at)
+                 VALUES (1, ?1, ?2, ?3, 0, ?4, ?4)",
+                params![name, description, instructions, timestamp],
+            )
+            .map_err(|_| STORAGE_ERROR)?;
+    }
+    Ok(())
+}
+
+fn template_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentTemplate> {
+    Ok(DocumentTemplate {
+        id: row.get(0)?,
+        version: row.get(1)?,
+        name: row.get(2)?,
+        description: row.get(3)?,
+        instructions: row.get(4)?,
+        archived: row.get(5)?,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+    })
+}
+
+fn select_template(connection: &Connection, id: i64) -> PrivacyResult<DocumentTemplate> {
+    connection
+        .query_row(
+            "SELECT id, version, name, description, instructions, archived, created_at, updated_at
+             FROM document_templates WHERE id = ?1",
+            [id],
+            template_view,
+        )
+        .optional()
+        .map_err(|_| STORAGE_ERROR)?
+        .ok_or(TEMPLATE_UNAVAILABLE)
+}
+
+fn document_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<DocumentSummary> {
+    Ok(DocumentSummary {
+        usage: UsageSummary::default(),
+        id: row.get(0)?,
+        patient_id: row.get(1)?,
+        title: row.get(2)?,
+        template_name: row.get(3)?,
+        revision: row.get(4)?,
+        reviewed: row.get(5)?,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+    })
+}
+
+fn select_document(connection: &Connection, id: i64) -> PrivacyResult<PatientDocument> {
+    connection
+        .query_row(
+            "SELECT id, patient_id, title, template_id, template_name, revision, body,
+                    reviewed, include_signature, created_at, updated_at
+             FROM patient_documents WHERE id = ?1",
+            [id],
+            |row| {
+                let body: String = row.get(6)?;
+                let body =
+                    serde_json::from_str(&body).map_err(|_| rusqlite::Error::InvalidQuery)?;
+                Ok(PatientDocument {
+                    id: row.get(0)?,
+                    patient_id: row.get(1)?,
+                    title: row.get(2)?,
+                    template_id: row.get(3)?,
+                    template_name: row.get(4)?,
+                    revision: row.get(5)?,
+                    body,
+                    reviewed: row.get(7)?,
+                    include_signature: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|_| STORAGE_ERROR)?
+        .ok_or(DOCUMENT_UNAVAILABLE)
 }
 
 fn select_patient(connection: &Connection, id: i64) -> PrivacyResult<PatientView> {
@@ -833,6 +1556,43 @@ fn load_or_create_key() -> PrivacyResult<[u8; 32]> {
     Ok(key)
 }
 
+pub fn openai_key_configured() -> bool {
+    find_generic_password(None, KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT).is_ok()
+}
+
+pub fn load_openai_key() -> PrivacyResult<Vec<u8>> {
+    find_generic_password(None, KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT)
+        .map(|(password, _)| password.as_ref().to_vec())
+        .map_err(|_| "Configure the OpenAI API key in Settings first.")
+}
+
+pub fn save_openai_key(value: &str) -> PrivacyResult<()> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 512 {
+        return Err("Enter a valid OpenAI API key.");
+    }
+    if let Ok((_, mut item)) =
+        find_generic_password(None, KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT)
+    {
+        item.set_password(value.as_bytes())
+            .map_err(|_| "The OpenAI API key could not be saved in Keychain.")?;
+    } else {
+        let keychain = SecKeychain::default()
+            .map_err(|_| "The OpenAI API key could not be saved in Keychain.")?;
+        keychain
+            .set_generic_password(KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT, value.as_bytes())
+            .map_err(|_| "The OpenAI API key could not be saved in Keychain.")?;
+    }
+    Ok(())
+}
+
+pub fn remove_openai_key() -> PrivacyResult<()> {
+    if let Ok((_, item)) = find_generic_password(None, KEYCHAIN_SERVICE, OPENAI_KEYCHAIN_ACCOUNT) {
+        item.delete();
+    }
+    Ok(())
+}
+
 fn validate_title(value: &str) -> PrivacyResult<String> {
     normalise_required(
         value,
@@ -840,6 +1600,39 @@ fn validate_title(value: &str) -> PrivacyResult<String> {
         "Enter a note title.",
         "Use at most 160 characters for the note title.",
     )
+}
+fn template_fields(
+    name: &str,
+    description: &str,
+    instructions: &str,
+) -> PrivacyResult<(String, String, String)> {
+    Ok((
+        normalise_required(
+            name,
+            120,
+            "Enter a template name.",
+            "Use at most 120 characters for the template name.",
+        )?,
+        normalise_required(
+            description,
+            240,
+            "Enter a template description.",
+            "Use at most 240 characters for the template description.",
+        )?,
+        normalise_required(
+            instructions,
+            8_000,
+            "Enter instructions for this document prompt template.",
+            "Use at most 8,000 characters for template instructions.",
+        )?,
+    ))
+}
+fn normalise_limited(value: &str, limit: usize, long: &'static str) -> PrivacyResult<String> {
+    let value = value.trim();
+    if value.chars().count() > limit {
+        return Err(long);
+    }
+    Ok(value.to_owned())
 }
 fn validate_phrase(value: &str) -> PrivacyResult<String> {
     normalise_required(
@@ -1205,6 +1998,118 @@ mod tests {
                 .patient_reference
                 .as_deref(),
             Some("SYN-9")
+        );
+    }
+
+    #[test]
+    fn starter_templates_are_editable_archivable_and_restorable() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage::open_for_test(dir.path().join("notes.sqlite"), [14; 32]).unwrap();
+        let starters = store.templates(false).unwrap();
+        assert_eq!(starters.len(), 3);
+        assert_eq!(starters[0].name, "GP letter");
+        let updated = store
+            .update_template(
+                starters[0].id,
+                "GP update",
+                "Synthetic description",
+                "Use only supplied synthetic notes.",
+            )
+            .unwrap();
+        assert_eq!(updated.version, 2);
+        assert_eq!(updated.name, "GP update");
+        assert!(
+            store
+                .set_template_archived(updated.id, true)
+                .unwrap()
+                .archived
+        );
+        assert_eq!(store.templates(false).unwrap().len(), 2);
+        assert!(
+            !store
+                .set_template_archived(updated.id, false)
+                .unwrap()
+                .archived
+        );
+        let duplicate = store.duplicate_template(updated.id).unwrap();
+        assert_eq!(duplicate.name, "GP update copy");
+        assert_eq!(duplicate.version, 1);
+    }
+
+    #[test]
+    fn documents_are_patient_scoped_and_deleted_with_the_patient() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage::open_for_test(dir.path().join("notes.sqlite"), [15; 32]).unwrap();
+        let patient = store
+            .create_patient("Synthetic Client", Some("SYN-15"))
+            .unwrap();
+        let note = store
+            .save_note(patient.id, "Review", None, "Source", "Reviewed", "[]")
+            .unwrap();
+        let template = store.templates(false).unwrap().remove(0);
+        let body = DocumentBody::from_plain_text("Synthetic document body.");
+        let document = store
+            .save_document(
+                None,
+                patient.id,
+                "Synthetic letter",
+                template.id,
+                &body,
+                false,
+                false,
+                &[note.id],
+            )
+            .unwrap();
+        assert_eq!(store.documents(patient.id).unwrap().len(), 1);
+        assert!(!document.reviewed);
+
+        let reviewed = store
+            .save_document(
+                Some(document.id),
+                patient.id,
+                "Synthetic letter",
+                template.id,
+                &body,
+                true,
+                false,
+                &[note.id],
+            )
+            .unwrap();
+        assert!(reviewed.reviewed);
+        assert_eq!(reviewed.revision, 2);
+        assert_eq!(store.patient(patient.id).unwrap().document_count, 1);
+
+        store.delete_patient(patient.id).unwrap();
+        assert!(store.documents(patient.id).unwrap().is_empty());
+        assert_eq!(
+            store.patient_document(document.id).err(),
+            Some(DOCUMENT_UNAVAILABLE)
+        );
+    }
+
+    #[test]
+    fn unknown_restoration_tokens_block_reviewed_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage::open_for_test(dir.path().join("notes.sqlite"), [16; 32]).unwrap();
+        let patient = store.create_patient("Synthetic Client", None).unwrap();
+        let template = store.templates(false).unwrap().remove(0);
+        let body = DocumentBody::from_plain_text("Dear ⟪CV_unknown_0001⟫");
+        assert_eq!(
+            store
+                .save_document(
+                    None,
+                    patient.id,
+                    "Letter",
+                    template.id,
+                    &body,
+                    true,
+                    false,
+                    &[]
+                )
+                .err(),
+            Some(
+                "Resolve or remove every unknown placeholder before marking the document reviewed."
+            )
         );
     }
 }
