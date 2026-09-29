@@ -41,3 +41,6 @@ Run `python generate.py` with `python-docx` and `reportlab` installed. The gener
 is local and never reads app storage, credentials, clinical files or the network.
 Documents use a restrained business-brief style with an A4 page override.
 Generated files are checked in so no Python setup is needed for manual testing.
+
+PDFs embed ReportLab’s Bitstream Vera fonts and Unicode maps for consistent
+text extraction across macOS versions; see `FONT-LICENSE.txt`.

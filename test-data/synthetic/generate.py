@@ -9,6 +9,9 @@ from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+import reportlab
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.pagesizes import A4
@@ -71,16 +74,21 @@ def word(path, title, parts):
     doc.save(path)
 
 def pdf(path, title, parts):
-    body=ParagraphStyle('Body',fontName='Helvetica',fontSize=10.5,leading=14,spaceAfter=8)
-    heading=ParagraphStyle('Heading',parent=body,fontName='Helvetica-Bold',fontSize=12,leading=15,spaceBefore=12,spaceAfter=6,keepWithNext=True)
+    # Embed Unicode maps instead of relying on OS-specific standard-font decoding.
+    fonts = Path(reportlab.__file__).parent / 'fonts'
+    pdfmetrics.registerFont(TTFont('FixtureSans', str(fonts / 'Vera.ttf')))
+    pdfmetrics.registerFont(TTFont('FixtureSansBold', str(fonts / 'VeraBd.ttf')))
+    body=ParagraphStyle('Body',fontName='FixtureSans',fontSize=10.5,leading=14,spaceAfter=8)
+    heading=ParagraphStyle('Heading',parent=body,fontName='FixtureSansBold',fontSize=12,leading=15,spaceBefore=12,spaceAfter=6,keepWithNext=True)
     title_style=ParagraphStyle('Title',parent=heading,fontSize=21,leading=25,spaceBefore=0)
     story=[Paragraph(escape(title),title_style),Paragraph(escape(DISCLAIMER),body),Spacer(1,8)]
     for label,content in parts: story.extend([Paragraph(escape(label),heading),Paragraph(escape(content),body)])
     def footer(canvas, doc):
-        canvas.setFont('Helvetica',8);canvas.drawString(54,30,'SYNTHETIC TEST FIXTURE - fictional content only');canvas.drawRightString(A4[0]-54,30,str(doc.page))
+        canvas.setFont('FixtureSans',8);canvas.drawString(54,30,'SYNTHETIC TEST FIXTURE - fictional content only');canvas.drawRightString(A4[0]-54,30,str(doc.page))
     SimpleDocTemplate(str(path),pagesize=A4,leftMargin=54,rightMargin=54,topMargin=45,bottomMargin=48,title=title,author='Synthetic test fixture generator').build(story,onFirstPage=footer,onLaterPages=footer)
 
 def main():
+    (ROOT / "FONT-LICENSE.txt").write_text((Path(reportlab.__file__).parent / "fonts/bitstream-vera-license.txt").read_text())
     for folder in ['word','pdf','notes','templates']: (ROOT/folder).mkdir(exist_ok=True)
     manifest=[]
     for index,case in enumerate(CASES,1):

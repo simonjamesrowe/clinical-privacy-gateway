@@ -152,8 +152,22 @@ mod tests {
                     .to_string_lossy()
                     .starts_with("06")
                 {
-                    assert!(extracted.text.contains("Zoë Marlow"));
-                    assert!(extracted.text.contains("René Marlow"));
+                    // PDFKit versions may emit canonically equivalent decomposed accents.
+                    // Normalize only this fixture assertion; source text stays untouched.
+                    let canonical = extracted
+                        .text
+                        .replace("e\u{308}", "ë")
+                        .replace("e\u{301}", "é");
+                    assert!(
+                        canonical.contains("Zoë Marlow"),
+                        "Unicode patient name missing in {}",
+                        path.display()
+                    );
+                    assert!(
+                        canonical.contains("René Marlow"),
+                        "Unicode contact name missing in {}",
+                        path.display()
+                    );
                 }
             }
         }
