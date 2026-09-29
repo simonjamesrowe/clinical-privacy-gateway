@@ -69,7 +69,8 @@ pub struct PatientView {
 const PATIENT_COLUMNS: &str = "patients.id, patients.name, patients.patient_reference,
     (SELECT COUNT(*) FROM notes WHERE notes.patient_id = patients.id),
     (SELECT COUNT(*) FROM patient_mappings WHERE patient_mappings.patient_id = patients.id),
-    (SELECT COUNT(*) FROM patient_documents WHERE patient_documents.patient_id = patients.id)";
+    (SELECT COUNT(*) FROM patient_documents WHERE patient_documents.patient_id = patients.id
+      AND patient_documents.materialized = 1)";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -258,6 +259,7 @@ impl Storage {
                revision INTEGER NOT NULL,
                reviewed INTEGER NOT NULL,
                include_signature INTEGER NOT NULL,
+               materialized INTEGER NOT NULL DEFAULT 1,
                clinician_snapshot TEXT,
                signature_snapshot BLOB,
                created_at INTEGER NOT NULL,
@@ -305,6 +307,47 @@ impl Storage {
         ).map_err(|_| STORAGE_ERROR)?;
         seed_templates(&mut connection)?;
         usage::migrate(&mut connection)?;
+        let has_materialized = connection
+            .prepare("PRAGMA table_info(patient_documents)")
+            .map_err(|_| STORAGE_ERROR)?
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|_| STORAGE_ERROR)?
+            .filter_map(Result::ok)
+            .any(|name| name == "materialized");
+        if !has_materialized {
+            let transaction = connection.transaction().map_err(|_| STORAGE_ERROR)?;
+            transaction
+                .execute(
+                    "ALTER TABLE patient_documents ADD COLUMN materialized INTEGER NOT NULL DEFAULT 1",
+                    [],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            let empty_body = serde_json::to_string(&DocumentBody::from_plain_text(""))
+                .map_err(|_| STORAGE_ERROR)?;
+            transaction
+                .execute(
+                    "UPDATE patient_documents SET materialized = 0
+                     WHERE body = ?1 AND EXISTS (
+                       SELECT 1 FROM prepared_submissions p WHERE p.document_id = patient_documents.id
+                     )",
+                    [empty_body],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            transaction
+                .execute(
+                    "INSERT OR IGNORE INTO schema_migrations(version) VALUES (4)",
+                    [],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+            transaction.commit().map_err(|_| STORAGE_ERROR)?;
+        } else {
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO schema_migrations(version) VALUES (4)",
+                    [],
+                )
+                .map_err(|_| STORAGE_ERROR)?;
+        }
         connection
             .execute(
                 "UPDATE clinician_profile SET openai_model = ?1 WHERE openai_model = ''",
@@ -876,7 +919,8 @@ impl Storage {
             let mut statement = connection
                 .prepare(
                     "SELECT id, patient_id, title, template_name, revision, reviewed, created_at, updated_at
-                     FROM patient_documents WHERE patient_id = ?1 ORDER BY updated_at DESC, id DESC",
+                     FROM patient_documents WHERE patient_id = ?1 AND materialized = 1
+                     ORDER BY updated_at DESC, id DESC",
                 )
                 .map_err(|_| STORAGE_ERROR)?;
             let rows = statement
@@ -898,6 +942,7 @@ impl Storage {
                             d.created_at, d.updated_at, p.name, p.patient_reference
                      FROM patient_documents d
                      JOIN patients p ON p.id = d.patient_id
+                     WHERE d.materialized = 1
                      ORDER BY d.updated_at DESC, d.id DESC",
                 )
                 .map_err(|_| STORAGE_ERROR)?;
@@ -928,6 +973,52 @@ impl Storage {
         reviewed: bool,
         include_signature: bool,
         source_note_ids: &[i64],
+    ) -> PrivacyResult<PatientDocument> {
+        self.write_document(
+            id,
+            patient_id,
+            title,
+            template_id,
+            body,
+            reviewed,
+            include_signature,
+            source_note_ids,
+            true,
+        )
+    }
+
+    fn reserve_document(
+        &self,
+        patient_id: i64,
+        title: &str,
+        template_id: i64,
+        source_note_ids: &[i64],
+    ) -> PrivacyResult<PatientDocument> {
+        self.write_document(
+            None,
+            patient_id,
+            title,
+            template_id,
+            &DocumentBody::from_plain_text(""),
+            false,
+            false,
+            source_note_ids,
+            false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn write_document(
+        &self,
+        id: Option<i64>,
+        patient_id: i64,
+        title: &str,
+        template_id: i64,
+        body: &DocumentBody,
+        reviewed: bool,
+        include_signature: bool,
+        source_note_ids: &[i64],
+        materialized: bool,
     ) -> PrivacyResult<PatientDocument> {
         let title = normalise_required(
             title,
@@ -964,11 +1055,11 @@ impl Storage {
                 let changed = transaction
                     .execute(
                         "UPDATE patient_documents SET title = ?1, body = ?2, revision = revision + 1,
-                         reviewed = ?3, include_signature = ?4,
+                         reviewed = ?3, include_signature = ?4, materialized = ?10,
                          clinician_snapshot = CASE WHEN ?3 THEN ?5 ELSE clinician_snapshot END,
                          signature_snapshot = CASE WHEN ?3 AND ?4 THEN ?6 WHEN ?3 THEN NULL ELSE signature_snapshot END,
                          updated_at = ?7 WHERE id = ?8 AND patient_id = ?9",
-                        params![title, body_json, reviewed, include_signature, clinician_json, profile.3, timestamp, id, patient_id],
+                        params![title, body_json, reviewed, include_signature, clinician_json, profile.3, timestamp, id, patient_id, materialized],
                     )
                     .map_err(|_| STORAGE_ERROR)?;
                 if changed == 0 {
@@ -979,10 +1070,10 @@ impl Storage {
                 transaction
                     .execute(
                         "INSERT INTO patient_documents(patient_id, title, template_id, template_name, template_version,
-                         body, revision, reviewed, include_signature, clinician_snapshot, signature_snapshot, created_at, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?11, ?11)",
+                         body, revision, reviewed, include_signature, materialized, clinician_snapshot, signature_snapshot, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
                         params![patient_id, title, template.id, template.name, template.version, body_json, reviewed,
-                                include_signature, reviewed.then_some(clinician_json),
+                                include_signature, materialized, reviewed.then_some(clinician_json),
                                 (reviewed && include_signature).then_some(profile.3).flatten(), timestamp],
                     )
                     .map_err(|_| STORAGE_ERROR)?;
@@ -1057,7 +1148,7 @@ impl Storage {
             let changed = transaction
                 .execute(
                     "UPDATE patient_documents SET title = ?1, body = ?2, revision = revision + 1,
-                     reviewed = ?3, include_signature = ?4,
+                     reviewed = ?3, include_signature = ?4, materialized = 1,
                      clinician_snapshot = CASE WHEN ?3 THEN ?5 ELSE clinician_snapshot END,
                      signature_snapshot = CASE
                        WHEN ?3 AND ?4 AND ?6 IS NOT NULL THEN ?6
@@ -1160,17 +1251,8 @@ impl Storage {
             }
             id
         } else {
-            self.save_document(
-                None,
-                patient_id,
-                title,
-                template_id,
-                &DocumentBody::from_plain_text(""),
-                false,
-                false,
-                note_ids,
-            )?
-            .id
+            self.reserve_document(patient_id, title, template_id, note_ids)?
+                .id
         };
         let encoded = serde_json::to_string(&prepared).map_err(|_| STORAGE_ERROR)?;
         let created_at = now()?;
@@ -2272,6 +2354,7 @@ mod tests {
         assert!(reviewed.reviewed);
         assert_eq!(reviewed.revision, 2);
         assert_eq!(reviewed.title, "Revised synthetic letter");
+        assert_eq!(store.documents(patient.id).unwrap().len(), 1);
         assert_eq!(
             store
                 .with_connection(|connection| connection
@@ -2316,6 +2399,107 @@ mod tests {
             store.patient_document(document.id).err(),
             Some(DOCUMENT_UNAVAILABLE)
         );
+    }
+
+    #[test]
+    fn generation_reservations_appear_only_after_the_draft_is_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            Storage::open_for_test(dir.path().join("reservations.sqlite"), [18; 32]).unwrap();
+        let patient = store.create_patient("Synthetic Client", None).unwrap();
+        let note = store
+            .save_note(patient.id, "Review", None, "Source", "Reviewed", "[]")
+            .unwrap();
+        let template = store.templates(false).unwrap().remove(0);
+        let reserved = store
+            .reserve_document(patient.id, "Proposed letter", template.id, &[note.id])
+            .unwrap();
+
+        assert!(store.documents(patient.id).unwrap().is_empty());
+        assert!(store.all_documents().unwrap().is_empty());
+        assert_eq!(store.patient(patient.id).unwrap().document_count, 0);
+
+        store
+            .save_document(
+                Some(reserved.id),
+                patient.id,
+                "Proposed letter",
+                template.id,
+                &DocumentBody::from_plain_text("Generated synthetic text."),
+                false,
+                false,
+                &[note.id],
+            )
+            .unwrap();
+        assert_eq!(store.documents(patient.id).unwrap().len(), 1);
+        assert_eq!(store.all_documents().unwrap().len(), 1);
+        assert_eq!(store.patient(patient.id).unwrap().document_count, 1);
+    }
+
+    #[test]
+    fn migration_hides_empty_generation_reservations() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("reserved-documents.sqlite");
+        let store = Storage::open_for_test(path.clone(), [16; 32]).unwrap();
+        let patient = store.create_patient("Synthetic Client", None).unwrap();
+        let template = store.templates(false).unwrap().remove(0);
+        let document = store
+            .save_document(
+                None,
+                patient.id,
+                "Unfinished selection",
+                template.id,
+                &DocumentBody::from_plain_text(""),
+                false,
+                false,
+                &[],
+            )
+            .unwrap();
+        store
+            .with_connection(|connection| {
+                connection
+                    .execute(
+                        "INSERT INTO prepared_submissions(id, document_id, template_id, template_version,
+                         model, destination, purpose, instructions, input, payload_digest,
+                         restoration_json, created_at)
+                         VALUES ('old-reservation', ?1, ?2, ?3, ?4, 'https://api.openai.com',
+                         'Generate document', '', '', 'digest', '{}', 1)",
+                        params![document.id, template.id, template.version, DEFAULT_DOCUMENT_MODEL],
+                    )
+                    .map_err(|_| STORAGE_ERROR)?;
+                connection
+                    .execute("DELETE FROM schema_migrations WHERE version = 4", [])
+                    .map_err(|_| STORAGE_ERROR)?;
+                connection
+                    .execute(
+                        "ALTER TABLE patient_documents DROP COLUMN materialized",
+                        [],
+                    )
+                    .map_err(|_| STORAGE_ERROR)?;
+                Ok(())
+            })
+            .unwrap();
+        drop(store);
+
+        let reopened = Storage::open_for_test(path, [16; 32]).unwrap();
+        assert!(reopened.documents(patient.id).unwrap().is_empty());
+        assert!(reopened.all_documents().unwrap().is_empty());
+        assert_eq!(reopened.patient(patient.id).unwrap().document_count, 0);
+        reopened
+            .with_connection(|connection| {
+                assert_eq!(
+                    connection
+                        .query_row(
+                            "SELECT materialized FROM patient_documents WHERE id = ?1",
+                            [document.id],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .unwrap(),
+                    0
+                );
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]

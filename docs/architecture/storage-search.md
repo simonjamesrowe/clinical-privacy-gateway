@@ -62,6 +62,14 @@ record and removes associated prepared restoration material while retaining the
 independent patient document with a deletion warning. Exported files are outside
 the database lifecycle and remain under the clinician's control.
 
+Preparing an AI submission reserves its document and source bindings internally
+so approval, restoration, deletion and usage records share one stable identity.
+That reservation is not a patient document from the clinician's perspective: it
+is excluded from document libraries and patient counts until generated text is
+explicitly saved. Saving materialises the draft in the same update that writes
+its body. The additive migration marks empty pre-existing reservations as
+unmaterialised so selection alone cannot leave an editable blank document.
+
 ## Semantic-search seam
 
 Semantic search is deferred until observed keyword-search failures justify it.
