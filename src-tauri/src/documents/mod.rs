@@ -1,5 +1,6 @@
 //! Local, bounded document adapters. Errors never contain paths or clinical material.
 mod docx;
+pub mod export_pdf;
 mod pdf;
 use clinicians_veil_core::{documents::*, privacy::PrivacyResult};
 use std::{
@@ -128,6 +129,51 @@ mod tests {
         assert!(read(&path, &cancel).is_err());
         assert!(read(&dir.path().join("unsupported.doc"), &cancel).is_err());
     }
+    #[test]
+    fn synthetic_testing_kit_imports_through_native_adapters() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../test-data/synthetic");
+        let cancel = AtomicBool::new(false);
+        for folder in ["word", "pdf", "notes"] {
+            let paths: Vec<_> = std::fs::read_dir(root.join(folder)).unwrap().collect();
+            assert_eq!(paths.len(), 10);
+            for path in paths {
+                let path = path.unwrap().path();
+                let original = read(&path, &cancel).unwrap();
+                let extracted = extract(&original, &cancel, |_, _| {}).unwrap();
+                for expected in ["SYNTHETIC TEST DATA", "Visit 1", "Visit 2", "[CLIENT]"] {
+                    assert!(
+                        extracted.text.contains(expected),
+                        "{}: {expected}",
+                        path.display()
+                    );
+                }
+                if path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("06")
+                {
+                    // PDFKit versions may emit canonically equivalent decomposed accents.
+                    // Normalize only this fixture assertion; source text stays untouched.
+                    let canonical = extracted
+                        .text
+                        .replace("e\u{308}", "ë")
+                        .replace("e\u{301}", "é");
+                    assert!(
+                        canonical.contains("Zoë Marlow"),
+                        "Unicode patient name missing in {}",
+                        path.display()
+                    );
+                    assert!(
+                        canonical.contains("René Marlow"),
+                        "Unicode contact name missing in {}",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn text_encodings_are_strict_and_preserve_unicode() {
         assert_eq!(

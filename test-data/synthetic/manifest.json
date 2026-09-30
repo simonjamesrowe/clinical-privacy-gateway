@@ -1,0 +1,72 @@
+[
+  {
+    "id": "SYN-0001",
+    "name": "Alex Morgan",
+    "topic": "sleep follow-up",
+    "stem": "01-sleep-review",
+    "synthetic": true
+  },
+  {
+    "id": "SYN-0002",
+    "name": "Priya Vale",
+    "topic": "anxiety follow-up",
+    "stem": "02-anxiety-review",
+    "synthetic": true
+  },
+  {
+    "id": "SYN-0003",
+    "name": "Daniel Wren",
+    "topic": "persistent pain review",
+    "stem": "03-pain-review",
+    "synthetic": true
+  },
+  {
+    "id": "SYN-0004",
+    "name": "Samira Quill",
+    "topic": "mood and activity review",
+    "stem": "04-mood-review",
+    "synthetic": true
+  },
+  {
+    "id": "SYN-0005",
+    "name": "Theo Fenwick",
+    "topic": "rehabilitation progress",
+    "stem": "05-rehab-review",
+    "synthetic": true
+  },
+  {
+    "id": "SYN-0006",
+    "name": "Zoë Marlow",
+    "topic": "medicines discussion",
+    "stem": "06-medicines-review",
+    "synthetic": true
+  },
+  {
+    "id": "SYN-0007",
+    "name": "Casey Alder",
+    "topic": "family support meeting",
+    "stem": "07-family-meeting",
+    "synthetic": true
+  },
+  {
+    "id": "SYN-0008",
+    "name": "Jules Hartwell",
+    "topic": "work participation review",
+    "stem": "08-work-review",
+    "synthetic": true
+  },
+  {
+    "id": "SYN-0009",
+    "name": "Leila Brook",
+    "topic": "referral preparation",
+    "stem": "09-referral-notes",
+    "synthetic": true
+  },
+  {
+    "id": "SYN-0010",
+    "name": "Owen Thistle",
+    "topic": "end-of-episode review",
+    "stem": "10-discharge-review",
+    "synthetic": true
+  }
+]

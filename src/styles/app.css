@@ -42,10 +42,8 @@ button {
   gap: var(--space-3);
 }
 
-.welcome-start--secondary {
-  border-color: #9ab1aa;
-  background: transparent;
-  color: #155c5c;
+.welcome-brand {
+  white-space: nowrap;
 }
 
 .welcome {
@@ -53,7 +51,7 @@ button {
   display: grid;
   grid-template-columns: minmax(2rem, 1fr) minmax(0, 760px) minmax(2rem, 1fr);
   grid-template-rows: auto 1fr auto;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--header-height));
   overflow: hidden;
   background:
     linear-gradient(

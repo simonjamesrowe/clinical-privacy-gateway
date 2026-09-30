@@ -1,1 +1,5 @@
 licenses/* linguist-vendored
+
+# Preserve generated document fixtures byte-for-byte.
+*.pdf binary
+*.docx binary

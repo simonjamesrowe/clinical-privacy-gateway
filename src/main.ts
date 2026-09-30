@@ -2,7 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { aboutBuildLine, localBuildInfo, type BuildInfo } from "./build-info";
 import "./styles/app.css";
-import { TextReviewPage } from "./privacy/page";
+import { TextReviewPage, type WorkspaceScreen } from "./privacy/page";
 import type { Progress } from "./privacy/types";
 
 const applicationRoot = document.querySelector<HTMLElement>("#app");
@@ -33,6 +33,13 @@ function aboutMarkup(): string {
 
 function render(): void {
   app.innerHTML = `
+    <header class="app-header welcome-header">
+      <div class="app-header__inner">
+        <span class="brand welcome-brand"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span><span>Clinician’s Veil</span></span>
+        <nav class="primary-nav" aria-label="Application"><button type="button" data-open-patients>Patients</button><button type="button" data-open-notes>Notes</button><button type="button" data-open-documents>Documents</button><button type="button" data-open-redactions>Redactions</button><button type="button" data-open-templates>Document prompt templates</button><button type="button" data-open-settings>Settings</button></nav>
+        <span class="local-indicator">On this Mac</span>
+      </div>
+    </header>
     <section class="welcome" aria-labelledby="welcome-heading">
       <div class="welcome__ledger" aria-hidden="true">
         <span>LOCAL / 01</span>
@@ -42,8 +49,8 @@ function render(): void {
       <div class="welcome__copy">
         <p class="eyebrow">A local-first workspace</p>
         <h1 id="welcome-heading">Welcome to<br /><em>Clinician’s Veil.</em></h1>
-        <p class="welcome__description">Start a new note for a patient, or return to your encrypted patient and note library.</p>
-        <div class="welcome-actions"><button type="button" class="welcome-start" data-new-note>New note →</button><button type="button" class="welcome-start welcome-start--secondary" data-open-patients>Patients</button><button type="button" class="welcome-start welcome-start--secondary" data-open-notes>Notes</button></div>
+        <p class="welcome__description">Start clinical work or return to your encrypted patient, note and document libraries.</p>
+        <div class="welcome-actions" aria-label="Start work"><button type="button" class="welcome-start" data-new-patient>New patient →</button><button type="button" class="welcome-start" data-new-note>New note →</button><button type="button" class="welcome-start" data-new-document>New document →</button></div>
       </div>
       <footer class="welcome__footer">
         <span>${aboutBuildLine(buildInfo)}</span>
@@ -58,8 +65,9 @@ function render(): void {
   app
     .querySelector<HTMLButtonElement>("[data-close-about]")
     ?.addEventListener("click", closeAbout);
-  const openWorkspace = (screen: "patients" | "notes") => {
+  const openWorkspace = (screen: WorkspaceScreen) => {
     const workspace = document.createElement("div");
+    app.querySelector(".welcome-header")?.remove();
     app.querySelector(".welcome")?.replaceWith(workspace);
     page = new TextReviewPage(
       workspace,
@@ -83,11 +91,29 @@ function render(): void {
     .querySelector<HTMLButtonElement>("[data-open-patients]")
     ?.addEventListener("click", () => openWorkspace("patients"));
   app
+    .querySelector<HTMLButtonElement>("[data-new-patient]")
+    ?.addEventListener("click", () => openWorkspace("patient-new"));
+  app
     .querySelector<HTMLButtonElement>("[data-new-note]")
-    ?.addEventListener("click", () => openWorkspace("patients"));
+    ?.addEventListener("click", () => openWorkspace("note-patient"));
   app
     .querySelector<HTMLButtonElement>("[data-open-notes]")
     ?.addEventListener("click", () => openWorkspace("notes"));
+  app
+    .querySelector<HTMLButtonElement>("[data-new-document]")
+    ?.addEventListener("click", () => openWorkspace("document-patient"));
+  app
+    .querySelector<HTMLButtonElement>("[data-open-documents]")
+    ?.addEventListener("click", () => openWorkspace("documents"));
+  app
+    .querySelector<HTMLButtonElement>("[data-open-redactions]")
+    ?.addEventListener("click", () => openWorkspace("redactions"));
+  app
+    .querySelector<HTMLButtonElement>("[data-open-templates]")
+    ?.addEventListener("click", () => openWorkspace("templates"));
+  app
+    .querySelector<HTMLButtonElement>("[data-open-settings]")
+    ?.addEventListener("click", () => openWorkspace("settings"));
 }
 
 function aboutDialog(): HTMLDialogElement | null {

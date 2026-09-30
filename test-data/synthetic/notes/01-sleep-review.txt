@@ -1,0 +1,15 @@
+SYNTHETIC TEST DATA - fictional people, places and clinical scenarios. Not for clinical use.
+
+Synthetic sleep follow-up
+
+Patient details
+Fictional patient: Alex Morgan. Test reference: SYN-0001. Date of birth: 01/04/1980. Address: 1 Imaginary Mews, Exampleford, XX1 1XX. Email: case01@example.invalid. Telephone: 07700 900001.
+
+Visit 1 - 03 September 2026
+Alex Morgan attended the fictional Exampleford Practice for a sleep follow-up. Reported taking longer to fall asleep after changing work shifts. Described waking twice on most nights and feeling tired during the morning. No medication change was recorded. The record names partner Jamie Morgan. Identifying details are included deliberately so that local detection and review can be exercised.
+
+Visit 2 - 24 September 2026
+Alex Morgan attended a second appointment with fictional clinician Dr Avery Reed. Reported a more regular bedtime and fewer awakenings. Still felt tired after late shifts. The note records a plan to continue a sleep diary and discuss it at the next appointment. The documented next step is sleep diary and a four-week review. The phrase [CLIENT] appears here as literal source text for substitution testing.
+
+Information boundaries
+This scenario supplies no real diagnosis, risk conclusion, examination result or treatment recommendation. Missing information must remain missing. The two visits are separate observations and should not be silently combined into a single event.

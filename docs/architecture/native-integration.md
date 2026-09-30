@@ -8,6 +8,21 @@ the gated egress path. The web frontend receives serialisable domain views and
 progress events; it never receives database keys or arbitrary filesystem and
 network primitives.
 
+Patient-document submission accepts a backend-owned preparation identifier,
+not frontend-provided instructions or note text. The native egress adapter is
+restricted to the configured `https://api.openai.com` origin, rejects redirects,
+bounds request/response sizes and duration, and performs no automatic retries.
+It uses the Responses API in the foreground with separate instructions and
+input, `store: false`, no tools, and no conversation state. The adapter remains
+unreachable while the governance-backed clinical-sending flag is false.
+
+Document export commands use a native save picker and consume only a saved
+document revision loaded by opaque ID. PDF generation is local; exported drafts
+carry a visible `DRAFT — NOT YET REVIEWED` marker. The configured header,
+clinician details and selected signature are added after generation and never
+enter the provider request. Opaque document IDs are the default filenames;
+patient names and clinical text never appear in paths. Word export is pending.
+
 Tauri commands are adapters into the plain Rust core. Long-running capture and
 processing report progress through bounded channels and support cancellation.
 Resources—microphone sessions, timers, model handles, streams, and temporary
@@ -69,8 +84,8 @@ content-free messages; progress events carry only stage/count/operation metadata
   for ordinary check-on-save work to reduce cache invalidation and memory use.
 - Evaluate a faster linker in `.cargo/config.toml` when the codebase is
   scaffolded; keep platform-specific configuration documented.
-- Build locally with ad-hoc signing for this single-machine tool. GitHub Actions
-  validates pull requests and, after every successful push to `main`, updates a
+- GitHub Actions validates pull requests and, after every successful push to
+  `main`, updates a
   rolling `main-latest` prerelease with an arm64 DMG containing an ad-hoc-signed
   app. Tauri signs the completed bundle using `signingIdentity: "-"`, not just
   the executable's automatic linker signature. Both PR and release workflows
@@ -81,6 +96,12 @@ content-free messages; progress events carry only stage/count/operation metadata
   and workflow artifact are the distribution point for the target M2 Mac. The user must
   explicitly complete macOS’s Gatekeeper flow on first launch; Developer ID
   signing and notarisation remain deferred until broader distribution is required.
+- Repeated local test builds use `npm run tauri:local-dmg`, which creates a
+  device-local code-signing identity outside the repository and reuses it for
+  subsequent DMGs. This keeps the app's designated requirement stable so macOS
+  Keychain can remember an explicit “Always Allow” decision across rebuilds.
+  The identity is trusted only for code signing and never leaves that Mac. CI
+  remains ad-hoc signed until Developer ID signing is configured.
 
 ## Document adapters
 
@@ -99,3 +120,12 @@ on blocking workers with scoped autorelease pools and cancellation between
 pages. A single native page operation cannot be interrupted mid-call; its
 result is discarded if cancelled. PDF images are rendered on demand at a
 bounded 400–1600-pixel requested width, without disk caches or active content.
+
+Document settings return the supported priced model catalogue. Preparation accepts
+an explicit per-document model and an optional existing document ID, validates
+patient ownership, and returns that document ID and a local cost estimate alongside
+the exact payload. Submission fixes Standard processing and a 4,096-token output
+cap, captures usage even for incomplete or cancelled responses when available,
+and returns restoration results with per-document costs. `document_usage` is a
+read-only IPC query for local date bounds and an optional document ID. No command
+accepts client-supplied billing rates, usage, or successful-report counts.

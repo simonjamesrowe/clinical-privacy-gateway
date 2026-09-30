@@ -1,6 +1,6 @@
 # Approved AI Egress Intent
 
-**Status:** Specified but blocked
+**Status:** Document-generation use case named; governance activation is explicit
 
 ## Intent
 
@@ -10,7 +10,7 @@ approval.
 
 ## Activation gate
 
-Implementation and use remain blocked until all of the following are recorded:
+External submission remains blocked until all of the following are recorded:
 
 - a concrete task that local processing cannot adequately perform;
 - the approved provider, endpoint, model, and data-processing terms;
@@ -23,6 +23,14 @@ Implementation and use remain blocked until all of the following are recorded:
 Once activated, the clinician can inspect the exact reviewed payload and approve
 one submission to the named service for the named purpose.
 
+The first named use case is generation of a patient document from selected
+completed reviewed notes, as specified in
+[Patient Document Generation](../document-generation/intent.md). The destination
+is the configured OpenAI Responses API endpoint. The clinician records the
+model/provider review, organisational approval, applicable data controls and
+rollback plan locally before activation. The application does not independently
+verify those organisational decisions.
+
 ## Required behaviour
 
 - Start from a completed, current reviewed-note revision.
@@ -31,14 +39,18 @@ one submission to the named service for the named purpose.
 - Bind approval to a payload digest and invalidate it on any edit.
 - Disable automatic redirect following and validate the parsed origin of every
   destination and redirect hop.
-- Return the response for clinician review without writing it into the clinical
-  record automatically.
+- Use separate application instructions and reviewed-note input with
+  `store: false`, no tools, no conversation history, and foreground generation.
+- Return the response for local restoration and clinician review without
+  marking it reviewed or writing it into the clinical record automatically.
 - Store content-free submission time, destination, purpose, digest, and outcome
   in the encrypted database.
 
 ## Safety invariants
 
 - The default and remembered state is no submission.
+- Changing the saved API key or default model disables clinical sending until
+  the confirmations are recorded again for that configuration.
 - Raw source text, audio, original transcripts, detection provenance, and
   identifier mappings are ineligible for payload construction.
 - Approval is never inferred from saving, copying, a prior approval, or a global
@@ -56,6 +68,6 @@ one submission to the named service for the named purpose.
 
 ## Non-goals
 
-Automatic note polishing in the cloud, workflow prompt templates, reflective
-practice analysis, batch or background submission, provider selection by the
-model, and standing consent are outside this intent.
+Automatic note polishing in the cloud, reflective practice analysis, batch or
+background submission, provider selection by the model, and standing consent
+are outside this intent.

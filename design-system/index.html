@@ -737,15 +737,64 @@
                 <span aria-hidden="true">▤</span>TXT
               </button>
             </div>
-            <p>
-              <a href="./documents.html"
-                >Open the interactive document workflow</a
-              >. This uses the production components with synthetic responses
-              for import, review, save and search.
-            </p>
+            <footer class="specimen__footer">
+              <p>
+                <a href="./documents.html"
+                  >Open the interactive document workflow</a
+                >. This uses the production components with synthetic responses
+                for import, review, save and search. The
+                <a href="./configuration.html#documents">document library</a>
+                shows the cross-patient search table, status and generation-cost
+                columns used by the application.
+              </p>
+            </footer>
           </article>
         </section>
 
+        <section class="library-section" id="configuration">
+          <header>
+            <p class="eyebrow">Components in context</p>
+            <h2 class="section-title">Template editor and settings</h2>
+          </header>
+          <article class="specimen">
+            <h3>Formatted instructions and clinician signature</h3>
+            <ul class="specimen__rules">
+              <li>
+                Metadata on the left; a full-size formatted Markdown surface on
+                the right. Stack at narrow widths.
+              </li>
+              <li>
+                Formatting uses labelled icon buttons with tooltips, pressed
+                states and disabled undo/redo states. Headings, bold and lists
+                are supported; images, executable HTML and active links are
+                unavailable.
+              </li>
+              <li>
+                Settings separates OpenAI, generation, clinician details and
+                signature into labelled sections. Password fields use the
+                standard field component.
+              </li>
+              <li>
+                Clinical sending has its own section. Enabling it requires all
+                four locally recorded governance confirmations; a key or model
+                selection alone is insufficient.
+              </li>
+              <li>
+                Signature drawing, typing, undo, replacement and removal are
+                local. Save explicitly to persist changes.
+              </li>
+            </ul>
+            <footer class="specimen__footer">
+              <p>
+                <a href="./configuration.html">Try the template editor</a> ·
+                <a href="./configuration.html#settings"
+                  >Try Settings and signature drawing</a
+                >. These production screens use synthetic, memory-only
+                responses.
+              </p>
+            </footer>
+          </article>
+        </section>
         <section class="library-section" id="screens">
           <header>
             <p class="eyebrow">Composition</p>

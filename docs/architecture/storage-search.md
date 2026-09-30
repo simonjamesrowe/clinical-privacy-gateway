@@ -26,6 +26,12 @@ The database contains:
 - expiry metadata and deletion tombstones while a transaction completes; and
 - the FTS5 index over reviewed-note text, title, and legacy optional patient
   reference.
+- versioned document prompt templates, patient document revisions and their
+  selected source-note references;
+- prepared/submitted/returned document text, exact local restoration records,
+  and content-free submission outcomes; and
+- clinician details, signature bytes, and reviewed-document profile/signature
+  snapshots.
 
 When a clinician saves a pasted-text note, its source text is committed with the
 reviewed text and review snapshot in the same encrypted record. Source text is
@@ -47,7 +53,22 @@ never reach an analytics or external search service. Search results reveal only
 content the unlocked application could already display.
 
 Source text, original transcripts, audio, identifier mappings, and detection
-evidence are excluded from the index.
+evidence are excluded from the index. Patient-document bodies, submission text,
+restoration records, clinician details, and signatures are also excluded.
+
+Deleting a patient transactionally removes their documents and associated
+prepared submissions. Deleting a selected source note detaches its source
+record and removes associated prepared restoration material while retaining the
+independent patient document with a deletion warning. Exported files are outside
+the database lifecycle and remain under the clinician's control.
+
+Preparing an AI submission reserves its document and source bindings internally
+so approval, restoration, deletion and usage records share one stable identity.
+That reservation is not a patient document from the clinician's perspective: it
+is excluded from document libraries and patient counts until generated text is
+explicitly saved. Saving materialises the draft in the same update that writes
+its body. The additive migration marks empty pre-existing reservations as
+unmaterialised so selection alone cannot leave an editable blank document.
 
 ## Semantic-search seam
 
@@ -83,3 +104,32 @@ original, provenance and FTS entry together, rolling back all on failure. Edits
 to reviewed notes preserve the existing original. Search uses only attachment
 metadata, never the BLOB, and does not index original bytes, source text or
 filenames. Original retrieval happens only for an explicit in-app preview.
+
+## Document usage accounting
+
+A transactional migration adds `document_usage_reports` and
+`document_generation_usage`. A unique nullable document foreign key links a
+report's attempts while the document exists; `ON DELETE SET NULL` detaches it
+without losing historical spend. Opaque report keys prevent reused SQLite
+row IDs from merging a new report with a deleted one. No patient foreign key or
+clinical strings enter the accounting records.
+
+Consuming a prepared submission and inserting its unique attempt ID is atomic.
+An unfinished attempt retains unknown cost after a crash. Completion updates the
+attempt once and sets the report's first-success timestamp once. Failed attempts
+with returned usage remain billable; unknown usage never becomes zero.
+Costs use integer USD nanodollars and the attempt's saved price snapshot, with
+cached input subtracted from ordinary input and reasoning already included in
+output. New price catalogues do not change past costs. Report counts use the
+first-success date, while attempts and spend use the attempt date.
+
+
+Template instructions remain Markdown strings in the existing encrypted record;
+rich editing requires no schema migration. Clinician signature replacement or
+removal updates only the current profile. Reviewed revisions retain their own
+immutable profile/signature snapshots. Settings may return the current PNG to the
+local webview for preview; signature bytes never enter debug output or search.
+
+Model price snapshots include backward-compatible defaults for long-context
+pricing and reasoning settings. Older receipts retain their original rates;
+changing the curated default does not override a saved model choice.

@@ -1,0 +1,15 @@
+SYNTHETIC TEST DATA - fictional people, places and clinical scenarios. Not for clinical use.
+
+Synthetic family support meeting
+
+Patient details
+Fictional patient: Casey Alder. Test reference: SYN-0007. Date of birth: 07/04/1980. Address: 7 Imaginary Mews, Exampleford, XX1 1XX. Email: case07@example.invalid. Telephone: 07700 900007.
+
+Visit 1 - 03 September 2026
+Casey Alder attended the fictional Exampleford Practice for a family support meeting. A joint appointment included a relative also named Casey Alder. The patient discussed difficulty arranging transport; the relative described being available on Tuesdays. Both names intentionally match for placeholder testing. The record names relative Casey Alder. Identifying details are included deliberately so that local detection and review can be exercised.
+
+Visit 2 - 24 September 2026
+Casey Alder attended a second appointment with fictional clinician Dr Avery Reed. The patient reported one successful journey. The relative could not attend and their availability was not updated. Keep patient and relative statements separate even when visible names are the same. The documented next step is transport options and consent to future family involvement. The phrase [CLIENT] appears here as literal source text for substitution testing.
+
+Information boundaries
+This scenario supplies no real diagnosis, risk conclusion, examination result or treatment recommendation. Missing information must remain missing. The two visits are separate observations and should not be silently combined into a single event.

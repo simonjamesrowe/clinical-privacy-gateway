@@ -26,23 +26,27 @@ content in the library and screens.
 ## Information architecture
 
 ```text
-Welcome (unchanged)
-  ├─ New note  → Patients (choose one)
-  ├─ Patients
-  └─ Notes
+Welcome
+  ├─ Standard app header and navigation
+  ├─ New patient  → patient form
+  ├─ New note     → searchable patient chooser
+  ├─ New document → searchable patient chooser
+  └─ Patients · Notes · Documents · Redactions · Document prompt templates · Settings
 
-App header: [mark] Clinician’s Veil   Patients  Notes  Redactions  Settings   ● On this Mac
+App header (including Welcome): [mark] Clinician’s Veil   Patients  Notes  Documents  Redactions  Document prompt templates  Settings   ● On this Mac
 
 Patients                      searchable table
   New patient                 page form
   Patient                     ribbon + tabs
     Details                   editable form, delete patient
     Notes (default)           searchable table
+    Documents                 saved drafts/reviewed documents; new-document flow
     Redactions                patient redactions table
     New note / open note      review workspace
-Notes (all patients)          searchable table with Patient column
+Notes (all patients)          searchable table with Patient column; New note
 Redactions (all patients)     all-patients redactions table
-Settings                      local model
+Document prompt templates     create, edit, duplicate, archive, restore
+Settings                      local model, OpenAI configuration, clinician details/signature
 ```
 
 Screens are in-app states, not URLs: the desktop window has no back or forward
@@ -100,6 +104,9 @@ note returns to that patient's Notes tab.
 - A new component goes into `src/styles/components.css` and
   `src/privacy/components.ts`, and gets a specimen in the library, with its
   rules, in the same change.
+- Component specimens keep headings, rules, demos and related links in
+  separately padded regions. Related-link footers use muted small text with a
+  readable line length rather than running against the card edge.
 - Screens build DOM with `h()` from `src/privacy/dom.ts`, which turns every
   string into a text node. Patient names, titles, and clinical text never pass
   through `innerHTML`.
@@ -123,6 +130,35 @@ note returns to that patient's Notes tab.
   marks matches with brackets.
 - The all-patients Notes page stays, because the welcome page links to it.
 - The About dialog is the one modal and stays on the welcome page.
+
+### Patient documents
+
+- The document flow uses three explicit steps: **Choose notes**, **Review
+  submission**, and **Review document**.
+- New documents can add optional instructions that apply only to that
+  generation. Document details occupy the left pane and the full-height
+  additional-instructions field occupies the right pane, stacking at narrow
+  widths. Submission review labels its two columns **Instructions** and
+  **Reviewed notes**, using standard section titles and muted supporting copy.
+- Submission and generated-document actions share one split action row: the
+  back/regenerate action on the left and the primary save/send actions on the
+  right, stacking at narrow widths.
+- The outgoing review names OpenAI, the configured model, destination and
+  purpose. During network activity, the header says **Sending to OpenAI** rather
+  than **Working locally**.
+- Signature insertion is off for each document. Clinician details and the
+  drawing are previewed beneath the letter only when selected and are appended
+  locally after generation.
+- A reviewed document exposes **Copy text**, **Export Word**, and **Export PDF**.
+  Any edit returns it to draft.
+- The current governance-blocked state is a notice, not a disabled control with
+  no explanation. Saving a provider key never implies that sending is enabled.
+- Settings gives clinical sending its own bordered section. Four standard
+  checkbox rows record the required confirmations; the enable action remains
+  disabled until all four are selected and a provider key is already saved.
+- **Documents** is a first-class top-level library. Its table follows Patients
+  and Notes: one search field, a count/status line, row openers, patient context,
+  review status, and latest/total generation cost columns.
 
 ## Copy
 
@@ -176,3 +212,35 @@ previous query/filter, editor, scroll and focus. `document-toolbar`,
 `document-content`, `document-paragraph`, `document-page` and `document-tabs`
 use the shared component tokens. The [interactive document specimen](../design-system/documents.html)
 uses the production page with synthetic bridge responses.
+
+### Document models and usage
+
+Use the existing labelled select and data-table components for model selection
+and usage; no new visual component or palette is required. Settings labels its
+selector **Default model**; document creation labels it **Model** and states
+whether it uses the default or a per-document override. Show input/output prices
+in each option and the cached-input rates and price-check date in Settings.
+
+**Usage and costs** lives in Settings with a labelled **Period** selector for
+**This month** and **All time**. Show **Reports created**, **Generation attempts**,
+**Estimated spend in this app**, and **Average cost per report**. Preserve
+sub-cent precision. Partial totals explicitly add **unknown costs**, and never
+render missing usage as a zero-cost request. The patient Documents table adds
+**Latest cost** and **Total cost** columns. The existing design-system screens
+include synthetic examples of the selectors, usage table and cross-patient
+Documents library.
+
+### Template and settings configuration
+
+The [configuration specimen](../design-system/configuration.html) runs the actual
+screen components with memory-only synthetic fixtures. Template editing uses a
+one-third metadata / two-thirds writing layout, stacking on narrow windows.
+`markdown-editor.ts` provides restricted rich Markdown editing; `signature-pad.ts`
+provides local drawing, typed signatures and replacement/removal controls.
+Settings uses separate bordered sections and the standard `.field` input sizing.
+All component styling remains in `components.css` and uses design tokens.
+
+The template toolbar uses local SVG icons for paragraph, heading, bold, italic,
+bullets, undo/redo and Markdown source. Every icon has an accessible name and
+tooltip. Formatting reflects the current selection with a bordered pressed state;
+unavailable commands are disabled. Bullet formatting toggles on and off.

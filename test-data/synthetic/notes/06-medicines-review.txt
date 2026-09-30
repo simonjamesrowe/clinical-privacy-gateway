@@ -1,0 +1,15 @@
+SYNTHETIC TEST DATA - fictional people, places and clinical scenarios. Not for clinical use.
+
+Synthetic medicines discussion
+
+Patient details
+Fictional patient: Zoë Marlow. Test reference: SYN-0006. Date of birth: 06/04/1980. Address: 6 Imaginary Mews, Exampleford, XX1 1XX. Email: case06@example.invalid. Telephone: 07700 900006.
+
+Visit 1 - 03 September 2026
+Zoë Marlow attended the fictional Exampleford Practice for a medicines discussion. The synthetic note lists a previously prescribed 10 mg dose, with the drug name deliberately omitted. The patient reported taking it as listed and asked a question about timing. No prescribing decision was made. The record names partner René Marlow. Identifying details are included deliberately so that local detection and review can be exercised.
+
+Visit 2 - 24 September 2026
+Zoë Marlow attended a second appointment with fictional clinician Dr Avery Reed. The patient brought the same question to the second visit. A request for clarification was recorded for the prescribing clinician. The writer must not invent a drug name, titration, or clinical recommendation. The documented next step is clarification from the prescribing clinician. The phrase [CLIENT] appears here as literal source text for substitution testing.
+
+Information boundaries
+This scenario supplies no real diagnosis, risk conclusion, examination result or treatment recommendation. Missing information must remain missing. The two visits are separate observations and should not be silently combined into a single event.

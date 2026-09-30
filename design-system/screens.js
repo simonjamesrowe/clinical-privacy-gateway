@@ -1,8 +1,29 @@
 // Clickable composition of the target screens. Synthetic content only.
 const patients = [
-  { id: 1, name: "Alex Morgan", ref: "SYN-2048", notes: 3, redactions: 2 },
-  { id: 2, name: "Sam Okafor", ref: "SYN-3117", notes: 1, redactions: 0 },
-  { id: 3, name: "Jordan Reyes", ref: "", notes: 0, redactions: 1 },
+  {
+    id: 1,
+    name: "Alex Morgan",
+    ref: "SYN-2048",
+    notes: 3,
+    documents: 1,
+    redactions: 2,
+  },
+  {
+    id: 2,
+    name: "Sam Okafor",
+    ref: "SYN-3117",
+    notes: 1,
+    documents: 0,
+    redactions: 0,
+  },
+  {
+    id: 3,
+    name: "Jordan Reyes",
+    ref: "",
+    notes: 0,
+    documents: 0,
+    redactions: 1,
+  },
 ];
 const notes = [
   {
@@ -78,6 +99,23 @@ const redactions = [
     updated: "3 Aug 2026",
   },
 ];
+const templates = [
+  {
+    name: "GP letter",
+    description: "Summarise care for the GP",
+    status: "Available",
+  },
+  {
+    name: "Referral letter",
+    description: "Present the reason for referral",
+    status: "Available",
+  },
+  {
+    name: "Progress report",
+    description: "Summarise progress and next steps",
+    status: "Available",
+  },
+];
 let confirming = null;
 let query = "";
 const view = document.querySelector("#view");
@@ -121,8 +159,8 @@ function patientsList() {
   );
   return `${header("Patient library", "Patients", "", `<a class="button button--primary" href="#/patients/new">Add patient</a>`)}
     <div class="table-toolbar">${search("Search patients", "Search by name or patient number")}${count(rows.length, patients.length, "patients")}</div>
-    <table class="data-table"><thead><tr><th>Patient</th><th>Patient number</th><th class="hide-narrow">Notes</th><th class="hide-narrow">Redactions</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>
-    ${rows.map((p) => `<tr class="row-link" data-href="#/patients/${p.id}/notes"><td><strong>${esc(p.name)}</strong></td><td class="mono">${esc(p.ref || "—")}</td><td class="hide-narrow">${p.notes}</td><td class="hide-narrow">${p.redactions}</td><td class="actions"><a class="button button--compact" href="#/patients/${p.id}/new-note">New note</a></td></tr>`).join("")}
+    <table class="data-table"><thead><tr><th>Patient</th><th>Patient number</th><th class="hide-narrow">Notes</th><th class="hide-narrow">Documents</th><th class="hide-narrow">Redactions</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>
+    ${rows.map((p) => `<tr class="row-link" data-href="#/patients/${p.id}/notes"><td><strong>${esc(p.name)}</strong></td><td class="mono">${esc(p.ref || "—")}</td><td class="hide-narrow">${p.notes}</td><td class="hide-narrow">${p.documents}</td><td class="hide-narrow">${p.redactions}</td><td class="actions"><a class="button button--compact" href="#/patients/${p.id}/new-note">New note</a></td></tr>`).join("")}
     </tbody></table>`;
 }
 
@@ -142,7 +180,7 @@ function ribbon(p, tab) {
   return `${crumbs([["Patients", "#/patients"], [p.name]])}
     <section class="patient-ribbon">
       ${header("Patient", `${esc(p.name)}${p.ref ? `<span class="reference">${esc(p.ref)}</span>` : ""}`, "", `<a class="button button--primary" href="#/patients/${p.id}/new-note">New note</a>`)}
-      <nav class="tabs" role="tablist" aria-label="Patient sections">${t("details", "Details")}${t("notes", "Notes", p.notes)}${t("redactions", "Redactions", p.redactions)}</nav>
+      <nav class="tabs" role="tablist" aria-label="Patient sections">${t("details", "Details")}${t("notes", "Notes", p.notes)}${t("documents", "Documents", p.documents)}${t("redactions", "Redactions", p.redactions)}</nav>
     </section>`;
 }
 
@@ -194,6 +232,46 @@ function allNotes() {
     ${notesTable(rows, true)}`;
 }
 
+function patientDocuments(p) {
+  const rows =
+    p.id === 1
+      ? `<tr><td><strong>GP progress letter</strong></td><td>GP letter</td><td class="mono">24 Sep 2026</td><td><span class="badge">Reviewed</span></td></tr>`
+      : "";
+  return `${ribbon(p, "documents")}<section class="tab-panel" role="tabpanel">
+    <div class="table-toolbar"><span class="meta muted">${p.documents} documents</span><a class="button button--primary" href="#/patients/${p.id}/new-document">New document</a></div>
+    ${rows ? `<table class="data-table"><thead><tr><th>Title</th><th>Template</th><th>Created</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty-state"><p class="section-title">No documents yet</p><p class="muted">Create a document from this patient’s completed reviewed notes.</p><a class="button button--primary" href="#/patients/${p.id}/new-document">New document</a></div>`}
+  </section>`;
+}
+
+function newDocument(p) {
+  const patientNotes = notes.filter((note) => note.patient === p.id);
+  return `${crumbs([["Patients", "#/patients"], [p.name, `#/patients/${p.id}/documents`], ["Documents", `#/patients/${p.id}/documents`], ["New document"]])}
+    ${header("Patient document", "New document", `${esc(p.name)} · Patient number ${esc(p.ref)}`)}
+    <ol class="workflow-steps" aria-label="Document progress"><li aria-current="step">Choose notes</li><li>Review submission</li><li>Review document</li></ol>
+    <form class="form-stack document-create">
+      <div class="document-create-grid">
+        <section class="form-stack" aria-label="Document details">
+          <label class="field"><span>Document title</span><input value="GP progress letter" /></label>
+          <label class="field"><span>Template</span><select><option>GP letter</option><option>Referral letter</option><option>Progress report</option></select></label>
+          <label class="field"><span>Model</span><select><option>GPT-4.1 mini · Lower cost — US$0.40 in / US$1.60 out per 1M tokens</option><option>GPT-4.1 — US$2.00 in / US$8.00 out per 1M tokens</option></select><span class="hint">Using your Settings default. Changing this selection affects only this document.</span></label>
+          <p class="muted">Estimated generation cost appears during submission review, before anything is sent.</p>
+        </section>
+        <label class="field field--wide document-custom-instructions"><span>Additional instructions (optional)</span><textarea rows="12" placeholder="For example: Focus on agreed next steps."></textarea><span class="hint">Added to this document only. You will review it before anything is sent.</span></label>
+      </div>
+      <fieldset class="choice-list"><legend class="section-title">Select notes</legend>${patientNotes.map((note, index) => `<label class="choice-row"><input type="checkbox" ${index < 2 ? "checked" : ""} /><span>${esc(note.title)}</span><span class="mono muted">${note.saved}</span></label>`).join("")}</fieldset>
+      <p class="meta muted">2 notes selected · Ordered oldest first</p>
+      <p class="notice"><strong>Clinical sending is not enabled.</strong> You can inspect this workflow, but no clinical material can leave this Mac until the information-governance setup requirements are recorded.</p>
+      <div class="form-actions form-actions--split"><a class="button" href="#/patients/${p.id}/documents">Cancel</a><button class="button button--primary">Review submission</button></div>
+    </form>`;
+}
+
+function templateList() {
+  return `${header("Global instructions", "Document prompt templates", "Instructions available for every patient. Editing a template does not change existing documents.", `<button class="button button--primary">New template</button>`)}
+    <div class="table-toolbar">${search("Search templates", "Search templates")}${count(templates.length, templates.length, "templates")}</div>
+    <table class="data-table"><thead><tr><th>Name</th><th>Description</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>${templates.map((template) => `<tr><td><strong>${template.name}</strong></td><td>${template.description}</td><td>${template.status}</td><td class="actions"><button class="link-button">Edit</button> · <button class="link-button">Duplicate</button> · <button class="link-button">Archive</button></td></tr>`).join("")}</tbody></table>
+    <form class="panel form-stack template-form"><h2 class="section-title">Edit template</h2><label class="field"><span>Name</span><input value="GP letter" /></label><label class="field"><span>Description</span><input value="Summarise care for the GP" /></label><label class="field"><span>Instructions</span><textarea rows="6">Write a letter using only the supplied notes. Include presentation, relevant history, progress, and next steps. Use professional British English. Do not invent missing details.</textarea></label><div class="form-actions form-actions--split"><button class="button">Cancel</button><button class="button button--primary">Save changes</button></div></form>`;
+}
+
 function redactionTable(rows, scope) {
   const matches = rows.filter((r) =>
     (r.phrase + r.replacement).toLowerCase().includes(query.toLowerCase()),
@@ -243,7 +321,10 @@ function newNote(p) {
 
 function settings() {
   return `${header("Local configuration", "Settings", "Model files are the only files this app downloads. Source text is never included.")}
-    <section class="panel"><div><p class="section-title">Local detection model</p><p class="muted">BERT NER · English · installed</p></div><div class="page-actions"><button class="button">Verify model</button><button class="button">Replace model</button><button class="button button--danger-quiet">Remove model…</button></div></section>`;
+    <section class="panel"><div><p class="section-title">Local detection model</p><p class="muted">BERT NER · English · installed</p></div><div class="page-actions"><button class="button">Verify model</button><button class="button">Replace model</button><button class="button button--danger-quiet">Remove model…</button></div></section>
+    <form class="panel form-stack settings-documents"><h2 class="section-title">OpenAI</h2><div class="settings-row"><div><strong>API key</strong><p class="muted">Saved in macOS Keychain</p></div><input type="password" placeholder="Enter a replacement key" /><button class="button button--compact">Remove key</button><button class="button button--compact">Test connection</button></div><label class="field"><span>Default model</span><select data-default-model><option value="mini">GPT-4.1 mini · Lower cost — US$0.40 in / US$1.60 out per 1M tokens</option><option value="standard">GPT-4.1 — US$2.00 in / US$8.00 out per 1M tokens</option></select><span class="hint">Used for new documents. Each document can choose a different model.</span></label><p class="notice"><strong>Clinical sending:</strong> Not enabled — setup requirements outstanding. Saving an API key does not enable submissions.</p><h2 class="section-title">Clinician details</h2><label class="field"><span>Display name</span><input value="Dr Jamie Ellis" /></label><label class="field"><span>Role</span><input value="Clinical psychologist" /></label><label class="field"><span>Qualifications</span><input /></label><h2 class="section-title">Signature</h2><div class="signature-pad">Draw with mouse or trackpad</div><p class="muted">Your details and signature are added on this Mac after generation.</p><div class="form-actions"><button class="button button--primary">Save changes</button></div></form>
+    <section class="panel form-stack"><h2 class="section-title">Usage and costs</h2><p class="hint">Synthetic example totals</p><label class="field"><span>Period</span><select><option>This month</option><option>All time</option></select></label>
+    <table class="data-table"><thead><tr><th>Metric</th><th>Total</th></tr></thead><tbody><tr><td>Reports created</td><td class="mono">12</td></tr><tr><td>Generation attempts</td><td class="mono">15</td></tr><tr><td>Estimated spend in this app</td><td class="mono">US$0.18</td></tr><tr><td>Average cost per report</td><td class="mono">US$0.015</td></tr></tbody></table><p class="muted">Costs use returned token usage and the prices recorded for each attempt.</p><p class="hint">Reports count once on first successful generation. Regenerations add attempts and cost. This is not your whole OpenAI account bill.</p></section>`;
 }
 
 function route() {
@@ -261,19 +342,25 @@ function route() {
       ? allNotes()
       : section === "redactions"
         ? globalRedactions()
-        : section === "settings"
-          ? settings()
-          : id === "new"
-            ? newPatient()
-            : p && sub === "details"
-              ? details(p)
-              : p && sub === "redactions"
-                ? patientRedactions(p)
-                : p && sub === "new-note"
-                  ? newNote(p)
-                  : p
-                    ? patientNotes(p)
-                    : patientsList();
+        : section === "templates"
+          ? templateList()
+          : section === "settings"
+            ? settings()
+            : id === "new"
+              ? newPatient()
+              : p && sub === "details"
+                ? details(p)
+                : p && sub === "redactions"
+                  ? patientRedactions(p)
+                  : p && sub === "documents"
+                    ? patientDocuments(p)
+                    : p && sub === "new-document"
+                      ? newDocument(p)
+                      : p && sub === "new-note"
+                        ? newNote(p)
+                        : p
+                          ? patientNotes(p)
+                          : patientsList();
   const q = view.querySelector("#q");
   view.querySelector("[data-search]")?.addEventListener("submit", (e) => {
     e.preventDefault();

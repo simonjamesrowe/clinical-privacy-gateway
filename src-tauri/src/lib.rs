@@ -125,7 +125,27 @@ pub fn run() {
             privacy::update_patient,
             privacy::update_mapping,
             privacy::update_patient_mapping,
-            privacy::save_mapping_from_review
+            privacy::save_mapping_from_review,
+            privacy::list_document_templates,
+            privacy::create_document_template,
+            privacy::update_document_template,
+            privacy::duplicate_document_template,
+            privacy::set_document_template_archived,
+            privacy::document_settings,
+            privacy::document_usage,
+            privacy::save_document_settings,
+            privacy::remove_openai_api_key,
+            privacy::set_clinical_sending_enabled,
+            privacy::test_openai_connection,
+            privacy::list_documents,
+            privacy::list_patient_documents,
+            privacy::patient_document,
+            privacy::save_patient_document,
+            privacy::update_patient_document,
+            privacy::delete_patient_document,
+            privacy::export_patient_document_pdf,
+            privacy::prepare_document_submission,
+            privacy::submit_document_generation
         ])
         .setup(|app| {
             app.manage(privacy::PrivacyState::new(

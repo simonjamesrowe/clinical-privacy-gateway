@@ -23,6 +23,10 @@ unlocked system. FileVault remains complementary and expected.
 | Patient-specific saved redaction | Until its patient is deleted               | No         | Never                        |
 | All-patients saved redaction     | Retained; no deletion path in this release | No         | Never                        |
 | Operational diagnostics          | Content-free and minimal                   | No         | Non-content metadata only    |
+| Document prompt templates        | Until archived; editable and restorable    | No         | Only inside reviewed payload |
+| Patient document revisions       | Until document or patient deletion         | No         | Never automatically          |
+| Submission/restoration records   | With their patient document                | No         | Never                        |
+| Clinician profile, PDF header and signature | Until replaced or removed        | No         | Never                        |
 
 Expiry removes source audio, the original aligned transcript, alignment data,
 and any derived temporary files as one operation. Deleting a note removes its
@@ -58,6 +62,27 @@ Every submission must:
 4. bind approval to a digest of that payload and revision;
 5. cancel if the payload changes; and
 6. record content-free outcome metadata inside the encrypted database.
+
+For patient-document generation, the core replaces eligible reviewed
+placeholder spans with request-specific tokens derived from saved review
+provenance. Exact local restoration uses only that submission's token map. It
+does not perform broad replacement from the saved-redaction library. Kept text
+is authoritative; removed and generalised details are not reconstructed.
+
+Provider credentials use a separate Keychain item. The encrypted database key,
+provider credential, clinical material, source metadata, token map, clinician
+profile, and signature have separate lifecycles and are never combined in logs.
+Recording a credential does not enable clinical sending.
+After the first successful Keychain read, the OpenAI credential is retained only
+in process memory for the rest of that app session so Settings, connection tests
+and document generation do not repeatedly request Keychain access. Removing the
+key clears both Keychain and the session cache; quitting the app clears the cache.
+Settings can enable the route only after the clinician explicitly records all
+four governance confirmations for the saved provider configuration. The native
+command validates that every confirmation is present and that a Keychain
+credential exists. Replacing/removing the key or changing the default model
+resets the flag to disabled. This record supports a local workflow; it does not
+claim that the application verified organisational approval.
 
 Redirects must not bypass destination validation. Validate each parsed origin
 and each redirect hop before sending. Raw source text, source audio, original
@@ -100,3 +125,24 @@ structured text nodes. Neither path follows document links, external XML
 relationships, scripts, actions or embedded objects. No plaintext preview
 files or browser persistence are created. Native handles and buffers are
 released on success, discard, cancellation, failure and window destruction.
+
+Model selection and usage accounting are local. The curated model selector does
+not enable egress or imply that every model is organisationally approved. A
+per-document choice is frozen into the prepared submission; changing Settings'
+default affects only subsequent documents. Preparation estimates use local
+bytes, never a provider token-counting endpoint. Prices and content-free usage
+receipts remain in SQLCipher. Accounting totals survive deletion after their
+link to the document is cleared; clinical material and patient metadata do not.
+
+
+Template formatting is local ProseMirror editing with Markdown storage. The
+schema excludes images and links, Markdown HTML is disabled, and clipboard HTML
+is stripped before parsing. Source instructions still appear in the exact
+outgoing payload review. Optional per-document instructions are bounded to
+4,000 characters and included in the single-use payload digest. Signature
+capture uses a local canvas; the native
+boundary decodes and validates bounded PNG pixels before encrypted persistence.
+Generated output is opened in the same constrained editor. PDF export loads a
+saved revision by opaque ID, renders its header and optional signature locally,
+and uses a native save picker with an opaque default filename. None of these
+operations requires or enables AI egress.

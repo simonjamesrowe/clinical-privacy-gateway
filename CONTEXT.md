@@ -91,3 +91,29 @@ _Avoid_: Safe payload, anonymised payload
 A fresh affirmative action authorising one reviewed payload to leave the
 device for one named destination and purpose.
 _Avoid_: Consent, preference
+
+## Patient documents
+
+**Document prompt template**:
+Reusable clinician-authored instructions for creating one kind of patient
+document. It contains a name, description, and instructions; it is not a
+provider-hosted prompt or a form-field template.
+_Avoid_: Workflow prompt, prompt preset
+
+**Prepared submission**:
+The exact, immutable instructions and pseudonymised reviewed-note input bound to
+one model, destination, purpose, source-revision set, and payload digest before
+an egress approval.
+_Avoid_: Draft request, approved prompt
+
+**Patient document**:
+An independently saved patient record created from selected reviewed notes and
+edited by the clinician. It is draft or reviewed and is not rewritten when its
+source template or clinician profile changes.
+_Avoid_: Generated note, AI report
+
+**Local restoration**:
+Single-pass replacement of recognised request-specific tokens with the exact
+source details recorded for that submission. It never consults the saved
+redaction library or infers a missing detail.
+_Avoid_: Re-identification, de-tokenisation

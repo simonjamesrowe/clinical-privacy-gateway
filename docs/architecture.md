@@ -45,11 +45,13 @@ web framework.
 - Search reviewed notes with encrypted FTS5 keyword search.
 - Reuse clinician-approved global or patient-specific identifier mappings as
   accepted exact-match local defaults, with an explicit per-note review option.
-- Specify external AI egress, but keep it unavailable until a concrete use case
-  and information-governance approval exist.
+- Provide local patient-document templates, encrypted draft records, clinician
+  details, and exact request-token preparation/restoration. The named OpenAI
+  document-generation route remains disabled until the clinician records the
+  provider configuration and every information-governance confirmation.
 
-Client profiles, preset privacy modes, workflow prompt templates, reflective
-practice analysis, semantic search, mobile support, synchronisation, multi-user
+Client profiles, preset privacy modes, custom form builders, reflective practice
+analysis, semantic search, mobile support, synchronisation, multi-user
 access, autonomous clinical decisions, and cloud processing are later concerns.
 
 ## Component responsibilities
@@ -80,6 +82,12 @@ These are stable domain shapes, not committed Rust or IPC schemas:
   alignment.
 - An **egress approval** binds the exact reviewed revision and payload to one
   destination, purpose, and attempted submission. It cannot be reused.
+- A **prepared submission** binds one versioned document prompt template,
+  selected reviewed-note revisions, request-specific restoration records,
+  model, destination, purpose, and digest. It is invalidated by any change.
+- A **patient document** is a versioned encrypted record independent of its
+  source notes and template. Reviewed revisions snapshot the selected clinician
+  details and optional signature locally.
 
 ## Decision index
 
@@ -94,7 +102,8 @@ These are stable domain shapes, not committed Rust or IPC schemas:
 | Search             | FTS5/BM25 in the first release                                                                                                                                                    | Implemented for reviewed pasted and imported text; originals excluded                          |
 | Semantic search    | `sqlite-vec` integration seam only                                                                                                                                                | Deferred                                                            |
 | Audio retention    | Encrypted source audio and aligned transcript for 30 days                                                                                                                         | Decided                                                             |
-| External AI        | Designed now, unavailable pending use case and governance approval                                                                                                                | Gated                                                               |
+| Patient documents  | Versioned local templates, encrypted document/profile records, exact request-token preparation, local restoration, rich editing and local PDF export                            | Implemented; Word export pending                                    |
+| External AI        | OpenAI Responses API for the named patient-document use case; unavailable pending governance approval and approved model/data controls                                            | Gated before clinical text is loaded                                |
 | Frontend framework | Vite/TypeScript for the initial shell; command boundary remains enforced                                                                                                          | Decided                                                             |
 | Distribution       | GitHub Actions validates PRs and packaged signatures; `main` updates a rolling arm64 DMG prerelease containing an ad-hoc-signed app, while version tags create permanent releases | Decided                                                             |
 
