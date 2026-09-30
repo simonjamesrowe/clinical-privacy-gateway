@@ -59,6 +59,36 @@ export function searchIcon(): SVGSVGElement {
   return svg;
 }
 
+/** The microphone icon on every dictation button. */
+export function microphoneIcon(): SVGSVGElement {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  for (const [name, value] of Object.entries({
+    "aria-hidden": "true",
+    width: "16",
+    height: "16",
+    viewBox: "0 0 16 16",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "1.5",
+    "stroke-linecap": "round",
+  }))
+    svg.setAttribute(name, value);
+  const capsule = document.createElementNS(ns, "rect");
+  for (const [name, value] of Object.entries({
+    x: "5.75",
+    y: "1.75",
+    width: "4.5",
+    height: "8",
+    rx: "2.25",
+  }))
+    capsule.setAttribute(name, value);
+  const stand = document.createElementNS(ns, "path");
+  stand.setAttribute("d", "M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.25");
+  svg.append(capsule, stand);
+  return svg;
+}
+
 /** The brand mark from the welcome page, sized for the app header. */
 export function brandMark(): HTMLSpanElement {
   return h(

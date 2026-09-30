@@ -18,6 +18,7 @@ import type {
   PreparedDocumentSubmission,
   GeneratedDocument,
   DocumentSummary,
+  DictationStatus,
   DocumentTemplate,
   MappingView,
   ModelStatus,
@@ -45,6 +46,8 @@ import {
   confirmation,
   confirmRow,
   dataTable,
+  dictationButton,
+  dictationStrip,
   emptyState,
   pageHeader,
   plural,
@@ -54,6 +57,14 @@ import {
   toolbar,
 } from "./components";
 import { brandMark, categoryLabel, formatDate, h } from "./dom";
+import {
+  codePoints,
+  codeUnits,
+  DictationController,
+  textareaTarget,
+  type DictationTarget,
+  type Unavailable,
+} from "./dictation";
 import { normalisePlaceholder, placeholderError } from "./placeholder";
 import type { Progress } from "./types";
 
@@ -124,6 +135,10 @@ interface DocumentEdit {
   includeSignature: boolean;
 }
 
+/** The core rejects template instructions longer than this (Unicode characters). */
+const MAX_TEMPLATE_CHARACTERS = 8_000;
+const MICROPHONE_OFF =
+  "Microphone access is off. Allow Clinician’s Veil in System Settings › Privacy & Security › Microphone.";
 const EXAMPLE =
   "Alex Morgan attended a review in Bristol on 12 March 2026. Alex Morgan reported improved sleep and no change to the prescribed 10 mg dose. Contact: alex.morgan@example.invalid. Case reference: SYN-2048.";
 
@@ -232,6 +247,9 @@ export class TextReviewPage {
   private focusTarget: string | null = null;
   private restoreFocus: string | null = null;
   private readonly keydown = (event: KeyboardEvent) => this.onKeydown(event);
+  private dictationStatus: DictationStatus | null = null;
+  private inputControls: (() => void) | null = null;
+  private readonly dictation: DictationController;
   constructor(
     private root: HTMLElement,
     private bridge: PrivacyBridge,
@@ -240,6 +258,11 @@ export class TextReviewPage {
   ) {
     this.route = { name: initialScreen };
     root.addEventListener("keydown", this.keydown);
+    this.dictation = new DictationController(
+      bridge,
+      () => this.dictationUnavailable(),
+      () => this.dictationChanged(),
+    );
   }
 
   async mount(): Promise<void> {
@@ -268,6 +291,7 @@ export class TextReviewPage {
     } catch {
       this.error = "Model status is unavailable. Reopen this page to retry.";
     }
+    await this.refreshDictationStatus();
     this.initialising = false;
     if (this.disposed) return;
     await this.load(this.route);
@@ -275,6 +299,8 @@ export class TextReviewPage {
   }
 
   dispose(): void {
+    this.dictation.dispose();
+    this.inputControls = null;
     this.templateEditor?.destroy();
     this.templateEditor = null;
     this.documentEditor?.destroy();
@@ -334,6 +360,8 @@ export class TextReviewPage {
         ]),
       );
     const main = h("main", { class: "page", "data-main": true });
+    this.inputControls = null;
+    this.dictation.beginRender();
     this.root.replaceChildren(
       h("div", { class: "workspace" }, this.header(), main),
     );
@@ -344,8 +372,63 @@ export class TextReviewPage {
       if (this.discarding) main.append(this.discardConfirmation());
       main.append(...this.screen(route));
     }
+    this.dictation.endRender();
     this.updateStatus();
     this.afterRender();
+  }
+
+  // Dictation ---------------------------------------------------------------
+
+  private async refreshDictationStatus(): Promise<void> {
+    if (!this.bridge.available) return;
+    try {
+      this.dictationStatus =
+        await this.bridge.call<DictationStatus>("dictation_status");
+    } catch {
+      this.dictationStatus = null;
+    }
+  }
+  private dictationUnavailable(): Unavailable | null {
+    if (!this.bridge.available)
+      return { message: "Open the macOS app to dictate.", quiet: true };
+    if (this.busy)
+      return { message: "Wait for processing to finish.", quiet: true };
+    const status = this.dictationStatus;
+    if (!status)
+      return { message: "Dictation status is unavailable.", quiet: true };
+    if (!status.installed)
+      return {
+        message: "Download the local speech model in Settings to dictate.",
+        setup: () => void this.navigate({ name: "settings" }),
+      };
+    if (status.microphone === "denied" || status.microphone === "restricted")
+      return { message: MICROPHONE_OFF };
+    return null;
+  }
+  private dictationChanged(): void {
+    const status = this.dictationStatus;
+    if (status && !this.dictation.active && status.microphone !== "authorized")
+      // The first recording answers the macOS microphone prompt, so refresh the access shown.
+      void this.bridge
+        .call<DictationStatus>("dictation_status")
+        .then((next) => {
+          this.dictationStatus = next;
+          this.dictation.refresh();
+        })
+        .catch(() => {});
+    this.inputControls?.();
+  }
+  /** A dictation button, recording strip and binding for one textarea. */
+  /** A dictation button, recording strip and binding for one field or editor. */
+  private dictationFor(
+    key: string,
+    target: DictationTarget,
+    id: string,
+  ): { button: HTMLButtonElement; strip: HTMLElement } {
+    const strip = dictationStrip(`${id}-dictation`);
+    const button = dictationButton(id);
+    this.dictation.attach(key, target, button, strip);
+    return { button, strip };
   }
   private screen(route: Exclude<Route, { name: "review" }>): Node[] {
     switch (route.name) {
@@ -2807,31 +2890,7 @@ export class TextReviewPage {
               "Estimated generation cost appears during submission review, before anything is sent.",
             ),
           ),
-          h(
-            "label",
-            {
-              class: "field field--wide document-custom-instructions",
-            },
-            h("span", {}, "Additional instructions (optional)"),
-            h("textarea", {
-              id: "document-custom-instructions",
-              rows: 12,
-              maxlength: 4000,
-              placeholder:
-                "For example: Address the letter to the community team and focus on agreed next steps.",
-              value: this.documentDraft.customInstructions,
-              oninput: (event: Event) => {
-                this.documentDraft.customInstructions = (
-                  event.target as HTMLTextAreaElement
-                ).value;
-              },
-            }),
-            h(
-              "span",
-              { class: "hint" },
-              "Added to this document only. You will review it before anything is sent.",
-            ),
-          ),
+          this.customInstructionsField(),
         ),
         h(
           "fieldset",
@@ -3217,6 +3276,47 @@ export class TextReviewPage {
     ].filter((node): node is HTMLElement => node !== null);
   }
 
+  private customInstructionsField(): HTMLElement {
+    const field = h("textarea", {
+      id: "document-custom-instructions",
+      rows: 12,
+      maxlength: 4000,
+      placeholder:
+        "For example: Address the letter to the community team and focus on agreed next steps.",
+      value: this.documentDraft.customInstructions,
+      "aria-describedby": "document-custom-instructions-hint",
+      oninput: (event: Event) => {
+        this.documentDraft.customInstructions = (
+          event.target as HTMLTextAreaElement
+        ).value;
+      },
+    });
+    const dictation = this.dictationFor(
+      "document-instructions",
+      textareaTarget(field, { max: 4000, measure: codeUnits }),
+      field.id,
+    );
+    return h(
+      "div",
+      { class: "field field--wide document-custom-instructions" },
+      h(
+        "div",
+        { class: "field__heading" },
+        h(
+          "label",
+          { for: "document-custom-instructions" },
+          "Additional instructions (optional)",
+        ),
+        dictation.button,
+      ),
+      h("div", { class: "dictation-field" }, field, dictation.strip),
+      h(
+        "span",
+        { class: "hint", id: "document-custom-instructions-hint" },
+        "Added to this document only. Typed or dictated, you will review it before anything is sent.",
+      ),
+    );
+  }
   private submissionInstructions(instructions: string): HTMLElement {
     const templateMarker = "\n\nDocument prompt template:\n";
     const customMarker = "\n\nAdditional instructions for this document:\n";
@@ -3451,6 +3551,15 @@ export class TextReviewPage {
     this.templateEditor = markdownEditor(edit.instructions, (value) => {
       edit.instructions = value;
     });
+    const dictation = this.dictationFor(
+      "template-instructions",
+      this.templateEditor.dictationTarget({
+        max: MAX_TEMPLATE_CHARACTERS,
+        measure: codePoints,
+      }),
+      "template-instructions",
+    );
+    this.templateEditor.element.id = "template-instructions";
     const field = (
       label: string,
       value: string,
@@ -3497,8 +3606,14 @@ export class TextReviewPage {
         h(
           "section",
           { class: "form-stack", "aria-label": "Template instructions" },
-          h("h2", { class: "section-title" }, "Instructions"),
+          h(
+            "div",
+            { class: "field__heading" },
+            h("h2", { class: "section-title" }, "Instructions"),
+            dictation.button,
+          ),
           this.templateEditor.element,
+          dictation.strip,
         ),
       ),
       h(
@@ -3967,6 +4082,7 @@ export class TextReviewPage {
         ),
         controls,
       ),
+      this.speechModelPanel(),
       this.documentSettingsForm(),
       h(
         "section",
@@ -4473,6 +4589,155 @@ export class TextReviewPage {
     }
     this.render();
   }
+  private speechModelPanel(): HTMLElement {
+    const status = this.dictationStatus;
+    const installed = status?.installed === true;
+    const size = `${Math.round((status?.bytes ?? 0) / 1_000_000)} MB`;
+    const description = !this.bridge.available
+      ? "Open the macOS app to manage the speech model."
+      : !status
+        ? "Speech model status is unavailable. Reopen Settings to retry."
+        : installed
+          ? `${status.name} · ${status.revision.slice(0, 7)} · installed`
+          : `The local speech model is not installed. Dictation needs a one-time ${size} download that contains no clinical material.`;
+    const microphone =
+      status &&
+      {
+        authorized: "Microphone access: allowed.",
+        notDetermined:
+          "Microphone access: macOS asks the first time you dictate.",
+        denied: MICROPHONE_OFF,
+        restricted: MICROPHONE_OFF,
+      }[status.microphone];
+    const controls =
+      this.confirming === "speech-model"
+        ? h(
+            "div",
+            { class: "notice notice--danger confirm", role: "alert" },
+            h(
+              "div",
+              {},
+              h("strong", {}, "Remove the local speech model?"),
+              " Dictation stays off until you download it again.",
+            ),
+            h(
+              "div",
+              { class: "page-actions" },
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button",
+                  "data-cancel-confirm": true,
+                  onclick: () => this.cancelConfirm(),
+                },
+                "Cancel",
+              ),
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button button--danger",
+                  "data-confirm-remove-speech-model": true,
+                  onclick: () => void this.removeSpeechModel(),
+                },
+                "Remove speech model",
+              ),
+            ),
+          )
+        : h(
+            "div",
+            { class: "page-actions" },
+            h(
+              "button",
+              {
+                type: "button",
+                class: "button",
+                "data-settings-install-speech": true,
+                disabled:
+                  this.busy || !this.bridge.available || this.dictation.active,
+                onclick: () => void this.installSpeechModel(),
+              },
+              installed
+                ? "Verify speech model"
+                : `Download speech model (${size})`,
+            ),
+            installed &&
+              h(
+                "button",
+                {
+                  type: "button",
+                  class: "button button--danger-quiet",
+                  "data-settings-remove-speech": true,
+                  "data-confirm-trigger": "speech-model",
+                  disabled: this.dictation.active,
+                  onclick: () =>
+                    this.startConfirm(
+                      "speech-model",
+                      "[data-settings-remove-speech]",
+                    ),
+                },
+                "Remove speech model…",
+              ),
+          );
+    return h(
+      "section",
+      { class: "panel", "aria-labelledby": "speech-model-title" },
+      h(
+        "div",
+        {},
+        h(
+          "h2",
+          { class: "section-title", id: "speech-model-title" },
+          "Local speech model",
+        ),
+        h("p", { class: "muted", "data-settings-speech": true }, description),
+        microphone &&
+          h(
+            "p",
+            { class: "muted", "data-settings-microphone": true },
+            microphone,
+          ),
+        h(
+          "p",
+          { class: "muted" },
+          "Hold the microphone button or ⌃⌥D in a text field to dictate; tap to keep recording. Audio stays in memory on this Mac and is discarded after transcription.",
+        ),
+      ),
+      controls,
+    );
+  }
+  private async installSpeechModel(): Promise<void> {
+    await this.perform(
+      "Preparing download…",
+      async () => {
+        await this.bridge.call("install_dictation_model", {
+          operation: this.operation,
+        });
+        await this.refreshDictationStatus();
+      },
+      "download",
+    );
+    this.render();
+  }
+  private async removeSpeechModel(): Promise<void> {
+    this.confirming = null;
+    let removed = false;
+    await this.perform(
+      "Removing speech model…",
+      async () => {
+        await this.bridge.call("remove_dictation_model");
+        removed = true;
+      },
+      "review",
+    );
+    if (removed) {
+      await this.refreshDictationStatus();
+      this.message = "Speech model removed.";
+    }
+    this.focusTarget = "[data-settings-install-speech]";
+    this.render();
+  }
   private async removeModel(): Promise<void> {
     this.confirming = null;
     let removed = false;
@@ -4669,7 +4934,7 @@ export class TextReviewPage {
   }
   private renderInput(ready: boolean): void {
     this.el("[data-workspace]").innerHTML =
-      `<section class="input-panel"><div class="pane-heading"><label for="source-input">Source text</label><button type="button" class="button button--compact" data-example>Use synthetic example</button></div>
+      `<section class="input-panel"><div class="pane-heading"><label for="source-input">Source text</label><div class="pane-heading__actions"><button type="button" class="button button--compact" data-example>Use synthetic example</button></div></div>
       <textarea id="source-input" rows="12" placeholder="Type or paste the text you want to review…" spellcheck="false" autocorrect="off" autocapitalize="off" autocomplete="off" aria-describedby="source-count"></textarea>
       <div class="pane-footer"><span id="source-count"></span><label class="review-saved-option"><input type="checkbox" data-review-saved-mappings /> Review saved redactions</label><button type="button" class="button button--primary" data-detect>Find identifiers</button></div></section>`;
     const panel = this.el<HTMLElement>(".input-panel");
@@ -4765,9 +5030,20 @@ export class TextReviewPage {
     const input = this.el<HTMLTextAreaElement>("#source-input");
     input.value = this.source;
     input.disabled = this.busy;
-    this.el<HTMLButtonElement>("[data-example]").disabled = this.busy;
-    this.el<HTMLButtonElement>("[data-example]").hidden =
-      this.inputMode === "import";
+    const example = this.el<HTMLButtonElement>("[data-example]");
+    example.hidden = this.inputMode === "import";
+    if (!panel.hidden) {
+      const dictation = this.dictationFor(
+        "source",
+        textareaTarget(input, {
+          max: MAX_SOURCE_CHARACTERS,
+          measure: codePoints,
+        }),
+        input.id,
+      );
+      example.before(dictation.button);
+      input.after(dictation.strip);
+    }
     const reviewSavedMappings = this.el<HTMLInputElement>(
       "[data-review-saved-mappings]",
     );
@@ -4780,9 +5056,11 @@ export class TextReviewPage {
       const length = Array.from(this.source).length;
       this.el<HTMLElement>("#source-count").textContent =
         `${length.toLocaleString()} / 100,000 characters`;
+      example.disabled = this.busy || this.dictation.active;
       this.el<HTMLButtonElement>("[data-detect]").disabled =
         !ready ||
         this.busy ||
+        this.dictation.active ||
         !this.source.trim() ||
         length > MAX_SOURCE_CHARACTERS ||
         Boolean(
@@ -4798,6 +5076,7 @@ export class TextReviewPage {
       this.source = input.value;
       count();
     });
+    this.inputControls = count;
     this.bind("[data-example]", () => {
       this.source = EXAMPLE;
       input.value = EXAMPLE;

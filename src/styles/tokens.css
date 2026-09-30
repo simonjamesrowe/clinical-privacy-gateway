@@ -29,6 +29,7 @@
   --color-decided-ink: #235844;
   --color-danger: #8c321b; /* destructive buttons, errors */
   --color-danger-soft: #f2dace; /* inline confirmation background */
+  --color-recording: #b42318; /* live microphone only: the dictation dot and pressed button */
 
   /* Type. Display is for one page title per screen; mono is for eyebrows,
      table headings, dates, counts, patient numbers and [PLACEHOLDERS]. */

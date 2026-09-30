@@ -1,3 +1,4 @@
+use crate::dictation::DictationState;
 use crate::documents;
 use crate::storage::{
     load_openai_key, openai_key_configured, remove_openai_key, save_openai_key,
@@ -28,7 +29,7 @@ use std::{
         Arc, Mutex, MutexGuard,
     },
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Clone)]
 pub struct PrivacyState {
@@ -91,7 +92,7 @@ impl PrivacyState {
             .as_ref()
             .ok_or("The encrypted note library is unavailable. Reopen the app and try again.")
     }
-    fn begin(&self, operation: u64) -> PrivacyResult<Operation> {
+    pub(crate) fn begin(&self, operation: u64) -> PrivacyResult<Operation> {
         let mut inner = self.lock()?;
         if inner.active.is_some() {
             return Err("Wait for the current operation to finish.");
@@ -116,13 +117,17 @@ impl PrivacyState {
         inner.note_id = None;
         Ok(())
     }
+    /// Whether a cancellable model, import or generation operation is running.
+    pub(crate) fn busy(&self) -> PrivacyResult<bool> {
+        Ok(self.lock()?.active.is_some())
+    }
 }
 
 // RAII clears active work even if a worker fails or unwinds.
-struct Operation {
+pub(crate) struct Operation {
     state: PrivacyState,
-    cancel: Arc<AtomicBool>,
-    id: u64,
+    pub(crate) cancel: Arc<AtomicBool>,
+    pub(crate) id: u64,
 }
 impl Drop for Operation {
     fn drop(&mut self) {
@@ -142,7 +147,7 @@ struct Progress {
     completed: u64,
     total: u64,
 }
-fn progress(app: &AppHandle, op: u64, stage: &'static str, completed: u64, total: u64) {
+pub(crate) fn progress(app: &AppHandle, op: u64, stage: &'static str, completed: u64, total: u64) {
     let _ = app.emit(
         "privacy-progress",
         Progress {
@@ -281,6 +286,8 @@ fn run_detectors(
     source: &str,
 ) -> PrivacyResult<Vec<privacy::Evidence>> {
     assets::cancelled(&op.cancel)?;
+    // Whisper and the entity model are never resident together (8 GB unified memory budget).
+    app.state::<DictationState>().release_model()?;
     progress(app, op.id, "Checking identifier patterns", 0, 0);
     let mut evidence = privacy::detect_rules(source);
     progress(app, op.id, "Loading local model", 0, 0);

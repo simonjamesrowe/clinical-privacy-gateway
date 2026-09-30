@@ -16,8 +16,10 @@ unlocked system. FileVault remains complementary and expected.
 | -------------------------------- | ------------------------------------------ | ---------- | ---------------------------- |
 | Original document and filename | Until its reviewed note is deleted | No | Never |
 | Saved source text                | Until its reviewed note is deleted         | No         | Never                        |
-| Recorded source audio            | Encrypted for 30 days after note creation  | No         | Never                        |
-| Original aligned transcript      | Encrypted for the same 30 days             | No         | Never                        |
+| Dictation audio                  | Memory only, while its utterance is transcribed; never written to disk | No | Never |
+| Provisional transcript           | Memory and the recording strip only; replaced by final text | No | Never |
+| Recorded source audio            | Planned: encrypted for 30 days after note creation | No  | Never                        |
+| Original aligned transcript      | Planned: encrypted for the same 30 days    | No         | Never                        |
 | Reviewed note                    | Until explicit deletion                    | Yes        | Only through the egress gate |
 | Detection provenance             | Encrypted with the reviewed note           | No         | No                           |
 | Patient-specific saved redaction | Until its patient is deleted               | No         | Never                        |
@@ -113,6 +115,27 @@ pseudonymised, not anonymous, GDPR safe, compliant, or approved.
 
 Before real clinical use, the clinician must follow the employing organisation's
 information-governance route. Pseudonymised health data remains personal data.
+
+## Dictation
+
+Dictation is an input method: final transcript text is inserted into the source
+text, per-document instructions or template instructions and then follows that
+field's existing review and egress rules. Nothing is sent anywhere by dictating. Microphone
+capture starts only while the clinician holds or latches the dictation control
+and stops when it is released, cancelled, fails, or its view closes; macOS shows
+its microphone indicator for exactly that period. Audio is resampled and held as
+in-memory buffers, dropped after each utterance is transcribed, and discarded
+without transcription on cancel. It is never written to disk or retained with
+the note, so 30-day source-audio retention and replay remain planned.
+
+Voice-activity detection keeps silence away from Whisper, and known
+noise-only outputs such as `[BLANK_AUDIO]` or “Thank you for watching” are
+dropped. Whisper can still mishear or omit words, including doses and negation;
+the clinician checks dictated text before detection or sending. The Whisper
+and Silero model files arrive only through the explicit, pinned, hash-verified
+installer used for the NER model, which contains no clinical material and has
+the same exact-origin and per-redirect validation. Transcripts are carried only
+on the recording's own IPC channel; errors are content-free and nothing is logged.
 
 ## Imported documents
 

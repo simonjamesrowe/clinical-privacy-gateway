@@ -98,7 +98,8 @@ note returns to that patient's Notes tab.
 - The display face is for one page title per screen and the brand. Section
   headings use the body face at 600.
 - Signal is only for the focus ring and the active review highlight. Errors use
-  danger.
+  danger. `--color-recording` is only for a live microphone: the pressed
+  dictation button and the recording dot.
 - There are no shadows. `--shadow-float` is reserved for the anchored selection
   menu.
 - A new component goes into `src/styles/components.css` and
@@ -181,8 +182,37 @@ note returns to that patient's Notes tab.
   announced with `role="status"`.
 - Text contrast meets WCAG AA on paper and surface. Colour never carries state
   alone.
-- Reduced motion is respected. The only motion is the welcome mark and the
-  activity bar.
+- Reduced motion is respected. The only motion is the welcome mark, the
+  activity bar and the dictation recording dot and level meter.
+- Dictation works by keyboard: hold ⌃⌥D in the field, or activate the focused
+  microphone button to toggle recording. The button exposes `aria-pressed` and
+  `aria-keyshortcuts`; recording status is announced with `role="status"`.
+  VoiceOver users may find ⌃⌥ taken by the VoiceOver modifier, so the button is
+  the accessible path.
+
+## Dictation
+
+- The **Source text**, **Additional instructions** and template **Instructions**
+  headings carry a compact **Dictate** button with the microphone icon. In the
+  formatted editor, the toolbar and source toggle are disabled while recording;
+  dictated text is inserted as plain text at the caret. It reads **Stop
+  dictation** while recording.
+- The recording strip sits directly under the field. It shows **Recording**,
+  elapsed time and a 16-segment voice meter. Segments light with the input
+  level; they are grey with **Waiting for speech** until voice activity detects
+  speech, then accent with **Hearing speech**, so a muted or wrong microphone
+  is obvious at once. Provisional text is muted italics labelled **Not yet
+  final**. Only final text enters the field.
+- Status copy: “Listening. Release to finish. Esc cancels.”, “Finishing
+  transcription…”, “Dictated text added. Check it before you continue.”, “No
+  speech was detected.”, “Dictation cancelled.” and “This field is full, so
+  dictation stopped.”
+- When the speech model is missing, the button is disabled and the strip says
+  “Download the local speech model in Settings to dictate.” with **Set up
+  dictation**. Settings has a **Local speech model** panel beside the detection
+  model with download/verify, remove and microphone-access lines.
+- **Find identifiers** and **Use synthetic example** are disabled while a
+  recording is active.
 
 ## Delivery
 

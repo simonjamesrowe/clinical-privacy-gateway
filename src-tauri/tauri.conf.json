@@ -36,7 +36,9 @@
       "../licenses/": "licenses/"
     },
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "minimumSystemVersion": "11.0",
+      "entitlements": "./Entitlements.plist"
     },
     "icon": ["icons/icon.icns"]
   }

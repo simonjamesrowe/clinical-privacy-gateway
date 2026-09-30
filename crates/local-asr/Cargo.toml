@@ -1,0 +1,21 @@
+[package]
+name = "clinicians-veil-asr"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version = "1.88"
+
+[dependencies]
+clinicians-veil-core = { path = "../clinicians-veil-core" }
+clinicians-veil-assets = { path = "../model-assets" }
+whisper-rs = { version = "=0.16.0", features = ["metal"] }
+cpal = "0.18.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "AVCaptureDevice", "AVMediaFormat", "block2"] }
+block2 = "0.6"
+
+[dev-dependencies]
+tempfile = "3"

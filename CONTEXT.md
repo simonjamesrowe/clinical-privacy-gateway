@@ -26,6 +26,22 @@ The recording from which a transcript was produced, retained temporarily so the
 clinician can verify transcription accuracy.
 _Avoid_: Voice note
 
+**Dictation**:
+Speaking into a text field through the microphone while the clinician holds or
+latches the dictation control. Its audio exists only in memory until
+transcribed; its final text becomes ordinary field text.
+_Avoid_: Voice note, recording
+
+**Provisional transcript**:
+Interim recognition of speech that is still being spoken. It is shown as not yet
+final and is never inserted, saved or sent.
+_Avoid_: Draft text, live text
+
+**Final transcript**:
+The recognition of a completed utterance, inserted at the caret for the
+clinician to check.
+_Avoid_: Verified transcript
+
 **Reviewed note**:
 The clinician-approved text saved to the note library after transcription,
 privacy transformation, and manual editing.

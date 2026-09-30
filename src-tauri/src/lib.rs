@@ -3,6 +3,7 @@ use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
 
+mod dictation;
 mod documents;
 mod privacy;
 mod storage;
@@ -145,9 +146,18 @@ pub fn run() {
             privacy::delete_patient_document,
             privacy::export_patient_document_pdf,
             privacy::prepare_document_submission,
-            privacy::submit_document_generation
+            privacy::submit_document_generation,
+            dictation::dictation_status,
+            dictation::install_dictation_model,
+            dictation::remove_dictation_model,
+            dictation::start_dictation,
+            dictation::stop_dictation,
+            dictation::cancel_dictation
         ])
         .setup(|app| {
+            app.manage(dictation::DictationState::new(
+                app.path().app_data_dir()?.join("models"),
+            ));
             app.manage(privacy::PrivacyState::new(
                 app.path().app_data_dir()?.join("models"),
                 app.path().app_data_dir()?.join("library"),
@@ -164,6 +174,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                let _ = window.state::<dictation::DictationState>().discard();
                 let _ = window.state::<privacy::PrivacyState>().discard();
             }
         })

@@ -22,7 +22,8 @@ the system. Then follow the relevant architecture branch:
   `src/styles/components.css`.
 - **Desktop or Apple integration:** read
   [native integration](docs/architecture/native-integration.md) before changing
-  Tauri commands, capabilities, WKWebView, Swift, SpeechAnalyzer, or packaging.
+  Tauri commands, capabilities, WKWebView, microphone capture, Whisper, or
+  packaging.
 
 Feature intent documents live at `specs/<feature>/intent.md`. Read the relevant
 intent before implementing a feature and update it when the user-facing intent

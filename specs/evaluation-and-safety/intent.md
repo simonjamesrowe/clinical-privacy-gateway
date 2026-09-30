@@ -14,8 +14,8 @@ claims measurable without using identifiable patient material.
   report excerpts.
 - Annotate every direct identifier, relationship, intended replacement, and
   indirect-risk combination to form a gold set.
-- Record 30–60 minutes of the intended user's non-patient dictation for ASR
-  comparison, including invented medication names, dosages, numbers,
+- Record 30–60 minutes of the intended user's non-patient dictation to compare
+  the pinned Whisper large-v3 turbo and small.en models, including invented medication names, dosages, numbers,
   abbreviations, and negations.
 - Keep all corpora local unless their synthetic status has been manually
   verified before publication.
