@@ -33,6 +33,15 @@ clinician chooses **Review saved redactions** before analysis. The interface
 follows the [design system](design-system/index.html)
 (`npm run design-system`).
 
+The clinician can also dictate into the source text, a document's additional
+instructions or a document prompt template's instructions: hold the microphone button or ⌃⌥D to talk, tap to keep recording,
+and press Esc to cancel. Whisper transcribes on this Mac after a one-time
+~575 MB speech-model download from Settings. Audio stays in memory and is
+discarded after transcription; only final text is inserted, and it goes through
+the same review as typed text. Check doses, numbers and negations: speech
+recognition can mishear them. See the
+[capture intent](specs/capture-and-transcription/intent.md).
+
 The local Llama contextual sweep and cleanup are not included yet. Initials,
 partial organisations, file paths and indirect identifying combinations require
 manual attention. No detections is not proof of de-identification. See the
@@ -43,8 +52,9 @@ organisational and target-device validation has been completed.
 
 ### Run locally
 
-Install a current Node.js LTS release and Rust, including the Apple Silicon
-target when building on another platform. Then run:
+Install a current Node.js LTS release, Rust (including the Apple Silicon target
+when building on another platform) and CMake, which builds the bundled
+whisper.cpp (`brew install cmake`). Then run:
 
 ```sh
 npm ci
@@ -53,6 +63,12 @@ npm run tauri dev
 
 The web interface can also be previewed without a native bridge with
 `npm run dev`. It labels itself as a local development build in that mode.
+
+macOS ties microphone permission to the app's code signature. Under
+`npm run tauri dev` it is granted to the terminal that launched the app. Each
+ad-hoc-signed CI DMG counts as a new app, so macOS asks again (reset a stale
+entry with `tccutil reset Microphone dev.simonrowe.cliniciansveil`);
+`npm run tauri:local-dmg` keeps the permission across rebuilds.
 
 ### Pull requests and releases
 
@@ -90,7 +106,8 @@ bash scripts/verify-macos-dmg.sh target/aarch64-apple-darwin/release/bundle/dmg/
 The intended first release combines:
 
 - pasted text and microphone dictation;
-- on-device transcription with source audio retained temporarily for checking;
+- on-device transcription (implemented as push-to-talk dictation; temporary
+  source-audio retention for checking is planned);
 - deterministic, named-entity, and contextual privacy detection;
 - role-preserving pseudonymisation and clinician-controlled cleanup;
 - explicit review of every proposed transformation;

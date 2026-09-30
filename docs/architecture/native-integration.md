@@ -27,29 +27,68 @@ Tauri commands are adapters into the plain Rust core. Long-running capture and
 processing report progress through bounded channels and support cancellation.
 Resources—microphone sessions, timers, model handles, streams, and temporary
 files—are released at completion as well as on cancellation or failure.
+Dictation streams its events over a per-recording channel instead.
 
-Tauri's documented command mechanism supports frontend-to-Rust calls. Its
-documented Swift plugin template targets iOS rather than macOS desktop, so the
-desktop Swift link is a required spike rather than an assumed Tauri feature.
-See [Tauri commands](https://v2.tauri.app/develop/calling-rust/) and
-[plugin development](https://v2.tauri.app/develop/plugins/).
+Tauri's documented command mechanism supports frontend-to-Rust calls. See
+[Tauri commands](https://v2.tauri.app/develop/calling-rust/) and
+[calling the frontend](https://v2.tauri.app/develop/calling-frontend/) for
+per-call channels.
 
-## Swift speech adapter
+## Speech adapter
 
-The Swift adapter owns only Apple-platform speech concerns:
+Dictation uses Whisper in-process rather than SpeechAnalyzer. SpeechAnalyzer is
+a Swift-only API that needs macOS 26 on the target Mac and a Swift bridge that
+Tauri does not provide for desktop; Whisper runs through the same
+Rust-compatible, statically linked adapter shape as the NER model. The
+framework-independent core owns voice-activity segmentation, the
+provisional/final job queue, resampling, transcript clean-up and length bounds
+(`clinicians_veil_core::dictation`). `crates/local-asr` owns the platform and
+model details:
 
-- microphone/audio-buffer integration required by the Speech framework;
-- SpeechDetector, SpeechAnalyzer, and SpeechTranscriber lifecycle;
-- installation/status of locale-specific Apple model assets; and
-- timestamped provisional and final transcript results.
-
-It contains no privacy detection, transformation, retention, search, or egress
-policy. Cross-language values remain small and explicit; stream audio within the
-native boundary rather than serialising it through the webview.
-
-The bridge spike must prove compilation, linking, cancellation, error mapping,
-permissions, streaming transcript events, and release packaging on the target
-M2 Mac before feature implementation proceeds.
+- **Capture.** `cpal` opens the default CoreAudio input on a dedicated thread
+  that owns the stream and drops it as soon as the recording stops, is
+  cancelled or fails, so the macOS microphone indicator turns off immediately.
+  The device callback only downmixes and `try_send`s into a bounded queue;
+  overflow stops the recording with a content-free message.
+- **Voice activity.** whisper.cpp's standalone Silero VAD (`WhisperVadContext`)
+  scores 32 ms frames. `FullParams` VAD is not used: it is ignored by
+  `whisper_full_with_state`. whisper.cpp clears Silero's recurrent state on every
+  call, so each 256 ms hop is scored with the preceding 0.5 s.
+- **Recognition.** `whisper-rs` 0.16 with Metal. whisper.cpp 1.8.3 and ggml are
+  linked statically with the Metal library embedded; the DMG needs no
+  developer-installed library. Decoding is greedy at temperature 0, English,
+  single-segment and context-free, with blank and non-speech tokens suppressed.
+  whisper-rs's `set_abort_callback_safe` is unsound in 0.16, so cancellation uses
+  the raw abort callback over the recogniser's cancel flag. Native logging is
+  discarded.
+- **Threads.** A listener thread resamples to 16 kHz, reports level at up to
+  15 Hz, and runs VAD and segmentation. A recogniser thread serves final
+  utterances before the latest provisional snapshot. It emits exactly one
+  terminal event after joining the listener and capture threads, so every
+  resource is released before the view hears that the recording ended.
+- **IPC.** `start_dictation` takes a `tauri::ipc::Channel`; level, provisional,
+  final and terminal events go only to the view that started the recording.
+  `stop_dictation` finishes what was heard; `cancel_dictation` discards it.
+  Audio never crosses the webview boundary. Errors are content-free
+  `&'static str` values.
+- **Residency.** Capture begins immediately while the model loads in parallel;
+  up to 60 s of final audio queues meanwhile. The model stays resident for 90 s
+  after a recording (an aborted, generation-checked timer) and is dropped before
+  any NER run. Detection is refused while a recording is active.
+- **Permission and packaging.** `src-tauri/Info.plist` supplies
+  `NSMicrophoneUsageDescription`; without it TCC terminates the app on first
+  access. `src-tauri/Entitlements.plist` grants
+  `com.apple.security.device.audio-input`, which the hardened runtime requires.
+  Authorisation is requested through `AVCaptureDevice` at the point of use, off
+  the main thread. TCC binds the grant to the code signature's designated
+  requirement: every ad-hoc CI build is a new identity to macOS, while
+  `npm run tauri:local-dmg` keeps the grant across rebuilds. Under `tauri dev`,
+  macOS attributes the microphone to the launching terminal.
+- **Minimum macOS.** `bundle.macOS.minimumSystemVersion` is 11.0, the first
+  release for Apple Silicon. Tauri's 10.13 default cannot compile ggml, which
+  uses `std::filesystem`. Building requires CMake. A local build that first ran
+  with the old target keeps it in whisper-rs-sys's CMake cache until that
+  crate's build directory is removed.
 
 ## Other model adapters
 
@@ -63,10 +102,13 @@ part of the application architecture.
 
 The first text-review adapter is `crates/local-ner`. It statically links ONNX
 Runtime; the DMG must not depend on a developer-installed runtime library.
-Only its explicit asset installer has an HTTP client. It uses fixed pinned URLs,
-validates every parsed redirect origin, bounds download sizes/timeouts, verifies
-hashes before installation and removes its known partial files after failure or
-on startup. The source-text command cannot accept a URL or model path.
+The NER and speech models share one explicit installer, `crates/model-assets`,
+the only model code with an HTTP client. Callers supply static manifests of
+pinned Hugging Face repository, revision, size and SHA-256; URLs are built from
+a fixed template, every parsed redirect origin is validated, download sizes and
+timeouts are bounded (the ~575 MB speech download gets a longer overall limit),
+hashes are verified before installation and known partial files are removed
+after failure or on startup. No command accepts a URL or model path.
 
 The Tauri adapter owns one in-memory review and one cancellable operation. Copy
 uses the backend-owned reviewed revision. Input and model errors are mapped to
@@ -90,7 +132,9 @@ content-free messages; progress events carry only stage/count/operation metadata
   app. Tauri signs the completed bundle using `signingIdentity: "-"`, not just
   the executable's automatic linker signature. Both PR and release workflows
   mount the finished DMG read-only and verify its checksum and the enclosed
-  bundle's signature before uploading. This checks integrity, not Apple trust;
+  bundle's signature, the microphone usage description, the signed
+  audio-input entitlement, and that only system libraries are linked, before
+  uploading. This checks integrity, not Apple trust;
   Gatekeeper acceptance requires Developer ID signing and notarisation.
   Matching `vX.Y.Z` tags create permanent versioned releases. The GitHub Release
   and workflow artifact are the distribution point for the target M2 Mac. The user must

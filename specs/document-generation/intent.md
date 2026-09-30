@@ -19,7 +19,7 @@ result, edits it, and saves or exports a reviewed document.
 
 - Seed editable GP letter, referral letter, and progress report templates.
 - Edit template metadata on the left and Markdown instructions in a large rich
-  text editor on the right; support headings, bold, italic and lists with a
+  text editor on the right, typed or dictated; support headings, bold, italic and lists with a
   source view. Rendering never instantiates HTML, links or remote images.
 - Divide Settings into connection, generation, clinician, signature and usage
   sections. Draw or type a signature, undo strokes, replace or remove it; save
@@ -28,6 +28,8 @@ result, edits it, and saves or exports a reviewed document.
   patient and preserve their order.
 - Allow up to 4,000 characters of optional instructions for one document. Give
   them a spacious right-hand editor beside the document details on wide screens.
+  The clinician can type or dictate them; dictated text is inserted like typed
+  text and is reviewed in the submission before anything is sent.
   Show them separately from the reusable template during submission review and
   bind them into the single-use payload digest.
 - Build submissions from saved reviewed text and its review snapshot in the

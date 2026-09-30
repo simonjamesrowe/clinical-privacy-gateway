@@ -1,0 +1,15 @@
+[package]
+name = "clinicians-veil-assets"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version = "1.88"
+
+[dependencies]
+clinicians-veil-core = { path = "../clinicians-veil-core" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1", features = ["rt", "time", "net"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

@@ -389,6 +389,221 @@
               </div>
             </div>
           </article>
+          <article class="specimen" id="dictation">
+            <h3>Dictation</h3>
+            <ul class="specimen__rules">
+              <li>
+                The microphone button sits in the field heading. Hold it, or
+                hold ⌃⌥D in the focused field, to talk; release to finish. A tap
+                shorter than a quarter of a second keeps recording until the
+                next tap. Esc cancels and restores the field.
+              </li>
+              <li>
+                While recording, the button is pressed and uses
+                <code>--color-recording</code>, the only use of that colour. The
+                strip under the field shows the dot, elapsed time and input
+                level. The dot pulses only when reduced motion is not requested.
+              </li>
+              <li>
+                Provisional text appears only in the strip, in muted italics
+                labelled <strong>Not yet final</strong>. Only final text is
+                inserted at the caret, and the field is read-only until the
+                recording ends.
+              </li>
+              <li>
+                A disabled button explains why beneath the field, with
+                <strong>Set up dictation</strong> when the speech model is
+                missing. Dictation never truncates text to fit a limit; it stops
+                and says so.
+              </li>
+            </ul>
+            <div class="specimen__demo specimen__demo--block">
+              <div class="field field--wide">
+                <div class="field__heading">
+                  <label for="demo-dictation-idle"
+                    >Additional instructions</label
+                  >
+                  <button
+                    type="button"
+                    class="button button--compact dictation-button"
+                    aria-pressed="false"
+                    aria-keyshortcuts="Control+Alt+D"
+                    data-state="idle"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                    >
+                      <rect
+                        x="5.75"
+                        y="1.75"
+                        width="4.5"
+                        height="8"
+                        rx="2.25"
+                      />
+                      <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.25" />
+                    </svg>
+                    <span>Dictate</span>
+                  </button>
+                </div>
+                <textarea id="demo-dictation-idle" rows="3">
+Focus on agreed next steps.</textarea
+                >
+              </div>
+              <div class="field field--wide">
+                <div class="field__heading">
+                  <label for="demo-dictation-live">Source text</label>
+                  <button
+                    type="button"
+                    class="button button--compact dictation-button"
+                    aria-pressed="true"
+                    aria-keyshortcuts="Control+Alt+D"
+                    data-state="recording"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                    >
+                      <rect
+                        x="5.75"
+                        y="1.75"
+                        width="4.5"
+                        height="8"
+                        rx="2.25"
+                      />
+                      <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.25" />
+                    </svg>
+                    <span>Stop dictation</span>
+                  </button>
+                </div>
+                <div class="dictation-field">
+                  <textarea id="demo-dictation-live" rows="3" readonly>
+Reviewed today. Mood low but stable.</textarea
+                  >
+                  <div
+                    class="dictation-strip"
+                    data-state="recording"
+                    data-speaking="true"
+                  >
+                    <div class="dictation-strip__live">
+                      <span
+                        class="dictation-strip__dot"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="dictation-strip__label">Recording</span>
+                      <time class="dictation-strip__time" datetime="PT14S"
+                        >0:14</time
+                      >
+                      <span
+                        class="dictation-strip__meter"
+                        role="meter"
+                        aria-label="Microphone level"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        aria-valuenow="62"
+                        aria-valuetext="Hearing speech"
+                      >
+                        <span class="dictation-strip__segment" data-on></span>
+                        <span class="dictation-strip__segment" data-on></span>
+                        <span class="dictation-strip__segment" data-on></span>
+                        <span class="dictation-strip__segment" data-on></span>
+                        <span class="dictation-strip__segment" data-on></span>
+                        <span class="dictation-strip__segment" data-on></span>
+                        <span class="dictation-strip__segment" data-on></span>
+                        <span class="dictation-strip__segment" data-on></span>
+                        <span class="dictation-strip__segment" data-on></span>
+                        <span class="dictation-strip__segment" data-on></span>
+                        <span class="dictation-strip__segment"></span>
+                        <span class="dictation-strip__segment"></span>
+                        <span class="dictation-strip__segment"></span>
+                        <span class="dictation-strip__segment"></span>
+                        <span class="dictation-strip__segment"></span>
+                        <span class="dictation-strip__segment"></span>
+                      </span>
+                      <span class="dictation-strip__voice" aria-hidden="true"
+                        >Hearing speech</span
+                      >
+                    </div>
+                    <p class="dictation-strip__provisional">
+                      <span class="dictation-strip__tag">Not yet final</span>
+                      <span class="dictation-strip__text"
+                        >Sertraline fifty milligrams once</span
+                      >
+                    </p>
+                    <p class="dictation-strip__status" role="status">
+                      Listening. Release to finish. Esc cancels.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div class="field field--wide">
+                <div class="field__heading">
+                  <label for="demo-dictation-off">Source text</label>
+                  <button
+                    type="button"
+                    class="button button--compact dictation-button"
+                    aria-pressed="false"
+                    disabled
+                  >
+                    <svg
+                      aria-hidden="true"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                    >
+                      <rect
+                        x="5.75"
+                        y="1.75"
+                        width="4.5"
+                        height="8"
+                        rx="2.25"
+                      />
+                      <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.25" />
+                    </svg>
+                    <span>Dictate</span>
+                  </button>
+                </div>
+                <div class="dictation-field">
+                  <textarea id="demo-dictation-off" rows="2"></textarea>
+                  <div class="dictation-strip" data-state="idle">
+                    <p class="dictation-strip__status" role="status">
+                      Download the local speech model in Settings to dictate.
+                    </p>
+                    <button type="button" class="link-button">
+                      Set up dictation
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="dictation-field">
+                <div class="dictation-strip" data-state="idle">
+                  <p
+                    class="dictation-strip__status"
+                    role="status"
+                    data-tone="error"
+                  >
+                    This field is full, so dictation stopped.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </article>
         </section>
 
         <section class="library-section" id="tables">

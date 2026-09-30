@@ -111,3 +111,79 @@ describe("local Markdown editor", () => {
     expect(renderMarkdown(input).textContent).toBe(input);
   });
 });
+
+describe("dictation into the formatted editor", () => {
+  const limit = {
+    max: 8_000,
+    measure: (text: string) => Array.from(text).length,
+  };
+
+  it("inserts at the caret with spacing, blocks editing while busy and restores", () => {
+    const change = vi.fn();
+    const editor = markdownEditor("## Summary\n\nSeen today.", change);
+    document.body.append(editor.element);
+    const target = editor.dictationTarget(limit);
+    const surface = editor.element.querySelector<HTMLElement>(
+      ".markdown-editor__surface [contenteditable]",
+    )!;
+    // The caret starts at the beginning of the document.
+    let mark = target.begin();
+    target.setBusy(true);
+    expect(surface.getAttribute("contenteditable")).toBe("false");
+    expect(
+      [...editor.element.querySelectorAll<HTMLButtonElement>("button")].every(
+        (button) => button.disabled,
+      ),
+    ).toBe(true);
+    mark = target.insert(mark, "Letter for the GP.")!;
+    expect(change).toHaveBeenLastCalledWith(
+      "## Letter for the GP. Summary\n\nSeen today.",
+    );
+    mark = target.insert(mark, "Keep it brief.")!;
+    expect(change).toHaveBeenLastCalledWith(
+      "## Letter for the GP. Keep it brief. Summary\n\nSeen today.",
+    );
+    target.setBusy(false);
+    expect(surface.getAttribute("contenteditable")).toBe("true");
+    target.restore(mark);
+    expect(change).toHaveBeenLastCalledWith("## Summary\n\nSeen today.");
+    expect(editor.element.querySelector("h2")?.textContent).toBe("Summary");
+    editor.destroy();
+    editor.element.remove();
+  });
+
+  it("refuses text that would take the Markdown over its limit", () => {
+    const change = vi.fn();
+    const editor = markdownEditor("Seen today.", change);
+    document.body.append(editor.element);
+    const target = editor.dictationTarget({ max: 20, measure: limit.measure });
+    const mark = target.begin();
+    expect(target.insert(mark, "A much longer dictated sentence.")).toBeNull();
+    expect(change).not.toHaveBeenCalled();
+    editor.destroy();
+    editor.element.remove();
+  });
+
+  it("dictates into the Markdown source when the source view is open", () => {
+    const change = vi.fn();
+    const editor = markdownEditor("Seen today.", change);
+    document.body.append(editor.element);
+    const target = editor.dictationTarget(limit);
+    [...editor.element.querySelectorAll("button")]
+      .find((b) => b.getAttribute("aria-label") === "Markdown source")!
+      .click();
+    const source = editor.element.querySelector("textarea")!;
+    source.setSelectionRange(source.value.length, source.value.length);
+    const mark = target.begin();
+    target.setBusy(true);
+    expect(source.readOnly).toBe(true);
+    target.insert(mark, "Plan reviewed.");
+    expect(change).toHaveBeenLastCalledWith("Seen today. Plan reviewed.");
+    target.restore(mark);
+    expect(change).toHaveBeenLastCalledWith("Seen today.");
+    target.describe("strip");
+    expect(source.getAttribute("aria-describedby")).toBe("strip");
+    editor.destroy();
+    editor.element.remove();
+  });
+});

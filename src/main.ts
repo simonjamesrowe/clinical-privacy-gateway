@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { aboutBuildLine, localBuildInfo, type BuildInfo } from "./build-info";
 import "./styles/app.css";
@@ -78,6 +78,7 @@ function render(): void {
           listen<Progress>("privacy-progress", (event) =>
             callback(event.payload),
           ),
+        channel: (onMessage) => new Channel(onMessage),
       },
       () => {
         page = null;

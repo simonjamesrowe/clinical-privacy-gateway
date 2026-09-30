@@ -31,8 +31,9 @@ Source audio and final transcript segments share timestamps for later checking.
 
 The [in-memory text review](../../specs/text-review/intent.md) currently implements
 rules → embedded NER → placeholder proposals → review → final rules/NER rescan.
-It does not yet implement the contextual Llama sweep, cleanup, transcription or
-storage shown in the full pipeline above.
+It does not yet implement the contextual Llama sweep or cleanup shown in the
+full pipeline above. Dictation and storage are described below and in
+[storage and search](storage-search.md).
 
 The evaluated baseline is the quantised ONNX export of `dslim/bert-base-NER` from
 `onnx-community/bert-base-NER-ONNX`, pinned at
@@ -58,6 +59,20 @@ labels; free-form generated prose is not accepted. Final rescans mask generated
 placeholder spans using length-preserving spaces and map new detections back
 to source positions. Model handles are dropped after every run, including errors
 and cancellation; there is no resident inference service.
+
+### Dictation slice
+
+Push-to-talk [dictation](../../specs/capture-and-transcription/intent.md) runs
+microphone → 16 kHz resampling → Silero voice activity → utterance segmentation
+→ Whisper → transcript clean-up → insertion into the focused field. An
+utterance starts after 250 ms of speech (with 300 ms pre-roll), ends after
+700 ms of silence, and is split at its quietest recent frame before Whisper's
+30-second window. The open utterance is re-transcribed about every 1.2 s for
+provisional text, which the UI shows only as “Not yet final”; only final text
+is inserted. The segmenter drops everything on cancel, and a recording is bounded
+to 10 minutes. The inserted text is ordinary source text: it joins the text-only
+slice at deterministic detection like typed text. Audio alignment and replay are
+not implemented.
 
 ### Full first-release pipeline
 
@@ -100,17 +115,25 @@ item-level editing and final review.
 
 The M2 Mac's 8 GB unified memory is the binding constraint. Load one major model
 stage at a time and release its resources when the stage completes or is
-cancelled. SpeechAnalyzer operates in system-managed memory; embedded NER and
-the local LLM must not remain resident together without measured evidence.
+cancelled. Embedded NER and the local LLM must not remain resident together
+without measured evidence.
 
-Apple documents SpeechAnalyzer as on-device, with model assets outside the
-application's bundle and runtime memory allocation. See
-[Apple's SpeechAnalyzer session](https://developer.apple.com/videos/play/wwdc2025/277/).
+Whisper large-v3 turbo (q5_0) measured about 0.8 GB resident on an M4 Pro
+development Mac; the target M2 figure is pending. It loads when a recording
+starts, while capture already buffers audio, stays resident for 90 seconds
+after the recording ends so consecutive dictations start quickly, and is dropped
+before any NER run. Detection is refused while a recording is active, so
+Whisper and the NER model are never resident together.
 
 ## Selection gates
 
-- Start with SpeechAnalyzer and SpeechDetector. Benchmark it against WhisperKit
-  on 30–60 minutes of non-patient dictation before fixing the ASR engine.
+- Whisper large-v3 turbo (q5_0) is the initial engine. Benchmark it against the
+  pinned small.en (q5_1) fallback on 30–60 minutes of non-patient dictation on the
+  target M2 before fixing the ASR model, and fall back if finalising a 10-second
+  utterance takes more than about 1.5 s or memory does not fit alongside the app.
+  `crates/local-asr/examples/benchmark.rs` reports load time and per-utterance
+  latency for synthetic audio. On an M4 Pro, a pass took 0.65–0.77 s regardless
+  of length, because Whisper encodes a fixed 30-second window.
 - Weight drug names, dosages, numbers, abbreviations, and negations more heavily
   than aggregate word-error rate.
 - Select the embedded NER model and runtime using the synthetic privacy corpus;

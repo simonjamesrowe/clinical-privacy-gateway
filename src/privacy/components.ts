@@ -1,6 +1,6 @@
 // Builders for the design-system components in src/styles/components.css.
 // Each returns the markup documented in design-system/index.html.
-import { h, searchIcon } from "./dom";
+import { h, microphoneIcon, searchIcon } from "./dom";
 import type { DocumentBlock } from "./types";
 
 type Content = Node | string | false | null | undefined;
@@ -311,5 +311,98 @@ export function documentContent(blocks: DocumentBlock[]): HTMLElement {
         block.kind === "listItem" ? `• ${block.text}` : block.text,
       );
     }),
+  );
+}
+
+/** Hold-to-talk microphone button. `DictationController` owns its state and label. */
+export function dictationButton(controls: string): HTMLButtonElement {
+  return h(
+    "button",
+    {
+      type: "button",
+      class: "button button--compact dictation-button",
+      "aria-pressed": "false",
+      "aria-controls": controls,
+      "aria-keyshortcuts": "Control+Alt+D",
+      "data-state": "idle",
+    },
+    microphoneIcon(),
+    h("span", { "data-dictation-label": true }, "Dictate"),
+  );
+}
+
+/** Segments in the dictation voice meter. */
+export const METER_SEGMENTS = 16;
+
+/** Recording indicator and status for one dictation field. Provisional text is never final. */
+export function dictationStrip(id: string): HTMLElement {
+  return h(
+    "div",
+    { class: "dictation-strip", id, hidden: true, "data-state": "idle" },
+    h(
+      "div",
+      { class: "dictation-strip__live", "data-dictation-live": true },
+      h("span", { class: "dictation-strip__dot", "aria-hidden": "true" }),
+      h("span", { class: "dictation-strip__label" }, "Recording"),
+      h("time", {
+        class: "dictation-strip__time",
+        "data-dictation-time": true,
+      }),
+      h(
+        "span",
+        {
+          class: "dictation-strip__meter",
+          role: "meter",
+          "aria-label": "Microphone level",
+          "aria-valuemin": "0",
+          "aria-valuemax": "100",
+          "aria-valuenow": "0",
+          "aria-valuetext": "Waiting for speech",
+          "data-dictation-meter": true,
+        },
+        ...Array.from({ length: METER_SEGMENTS }, () =>
+          h("span", { class: "dictation-strip__segment" }),
+        ),
+      ),
+      h(
+        "span",
+        {
+          class: "dictation-strip__voice",
+          "aria-hidden": "true",
+          "data-dictation-voice": true,
+        },
+        "Waiting for speech",
+      ),
+    ),
+    h(
+      "p",
+      {
+        class: "dictation-strip__provisional",
+        "aria-live": "off",
+        "data-dictation-provisional": true,
+        hidden: true,
+      },
+      h("span", { class: "dictation-strip__tag" }, "Not yet final"),
+      h("span", {
+        class: "dictation-strip__text",
+        "data-dictation-provisional-text": true,
+      }),
+    ),
+    h("p", {
+      class: "dictation-strip__status",
+      role: "status",
+      "aria-live": "polite",
+      "data-dictation-status": true,
+    }),
+    h(
+      "button",
+      {
+        type: "button",
+        class: "link-button",
+        "data-dictation-setup": true,
+        hidden: true,
+      },
+      "Set up dictation",
+    ),
   );
 }

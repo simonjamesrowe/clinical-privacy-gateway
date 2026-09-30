@@ -347,6 +347,139 @@
   cursor: default;
 }
 
+/* Dictation: hold-to-talk button and its recording strip */
+.dictation-button[aria-pressed="true"] {
+  border-color: var(--color-recording);
+  color: white;
+  background: var(--color-recording);
+}
+.dictation-button[data-state="finishing"],
+.dictation-button[data-state="cancelling"] {
+  border-color: var(--color-recording);
+  color: var(--color-recording);
+}
+.dictation-strip {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--color-line);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+}
+.dictation-strip[hidden],
+.dictation-strip [hidden] {
+  display: none;
+}
+.dictation-strip__live {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.dictation-strip__dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-recording);
+}
+.dictation-strip[data-state="finishing"] .dictation-strip__dot,
+.dictation-strip[data-state="cancelling"] .dictation-strip__dot {
+  background: var(--color-ink-muted);
+}
+.dictation-strip__label {
+  font-weight: 600;
+}
+.dictation-strip__time {
+  color: var(--color-ink-muted);
+  font: var(--text-xs) var(--font-mono);
+}
+/* The voice meter: segments light with the input level and turn accent while
+   voice activity detects speech, so a silent or wrong microphone is obvious. */
+.dictation-strip__meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--space-4);
+}
+.dictation-strip__segment {
+  width: 3px;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-line);
+}
+.dictation-strip__segment[data-on] {
+  background: var(--color-ink-muted);
+}
+.dictation-strip[data-speaking="true"] .dictation-strip__segment[data-on] {
+  background: var(--color-accent);
+}
+.dictation-strip__voice {
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+}
+.dictation-strip[data-speaking="true"] .dictation-strip__voice {
+  color: var(--color-accent-strong);
+  font-weight: 600;
+}
+.dictation-strip__provisional {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-style: italic;
+}
+.dictation-strip__text {
+  text-decoration: underline dashed var(--color-line-strong);
+  text-underline-offset: 0.2em;
+}
+.dictation-strip__tag {
+  flex: none;
+  color: var(--color-ink-muted);
+  font: normal 600 var(--text-xs) / 1.4 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.dictation-strip .link-button {
+  justify-self: start;
+}
+.dictation-strip__status {
+  margin: 0;
+  color: var(--color-ink-muted);
+}
+.dictation-strip__status[data-tone="error"] {
+  color: var(--color-danger);
+}
+.dictation-strip__status:empty {
+  display: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dictation-strip[data-state="recording"] .dictation-strip__dot,
+  .dictation-strip[data-state="starting"] .dictation-strip__dot {
+    animation: activity-pulse 0.9s ease-in-out infinite alternate;
+  }
+  .dictation-strip__segment {
+    transition: background-color 60ms linear;
+  }
+}
+
+.field__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.dictation-field {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  min-height: 0;
+}
+.dictation-field .dictation-strip,
+.form-stack > .dictation-strip {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+}
+
 /* Fields: label above, hint and error below */
 .field {
   display: grid;

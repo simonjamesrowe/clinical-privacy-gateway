@@ -70,6 +70,38 @@ Their distributed licence notices or upstream licensing statements are included
 in the matching `licenses/<component>-<version>.txt` files, bundled with the
 application.
 
+## Local dictation
+
+Dictation runs speech recognition in-process. These components are linked into
+the app:
+
+- whisper.cpp 1.8.3 and ggml, copyright (c) 2023–2024 The ggml authors — MIT
+  (`licenses/whisper.cpp-1.8.3.txt`), built from the sources vendored in
+  whisper-rs-sys 0.15.0. <https://github.com/ggml-org/whisper.cpp>.
+- whisper-rs 0.16.0 and whisper-rs-sys 0.15.0 — Unlicense
+  (`licenses/whisper-rs-0.16.0.txt`).
+- cpal 0.18.2 — Apache-2.0 (`licenses/cpal-0.18.2.txt`; the Apache licence text
+  is the repository's `LICENSE`).
+- coreaudio-rs 0.14.2 — MIT selected (`licenses/coreaudio-rs-0.14.2.txt`).
+- dasp_sample 0.11.0 — MIT selected (`licenses/dasp_sample-0.11.0.txt`).
+- mach2 0.6.0 — MIT selected (`licenses/mach2-0.6.0.txt`).
+- objc2-av-foundation, objc2-core-audio, objc2-core-audio-types,
+  objc2-audio-toolbox, objc2-core-foundation 0.3.2, dispatch2 0.3.1 and block2
+  0.6.2 — macOS framework bindings under the objc2 licensing statement
+  (`licenses/objc2-av-foundation-0.3.2.txt`). AVFoundation and CoreAudio are
+  supplied by macOS.
+
+The speech models are downloaded separately, only on request, and are not in
+the DMG:
+
+- `ggml-large-v3-turbo-q5_0.bin` from `ggerganov/whisper.cpp` at revision
+  `5359861c739e955e79d9a303bcbc70fb988958b1` — OpenAI Whisper weights converted
+  to ggml, MIT.
+  <https://huggingface.co/ggerganov/whisper.cpp/tree/5359861c739e955e79d9a303bcbc70fb988958b1>
+- `ggml-silero-v6.2.0.bin` from `ggml-org/whisper-vad` at revision
+  `9ffd54a1e1ee413ddf265af9913beaf518d1639b` — Silero VAD converted to ggml, MIT.
+  <https://huggingface.co/ggml-org/whisper-vad/tree/9ffd54a1e1ee413ddf265af9913beaf518d1639b>
+
 ## Markdown editing and signature validation
 
 - @types/linkify-it 5.0.0 — MIT (`licenses/@types-linkify-it-5.0.0.txt`).

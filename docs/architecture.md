@@ -16,13 +16,13 @@ flowchart LR
     UI[Web frontend in WKWebView]
     TA[Tauri command adapters]
     CORE[Plain Rust core]
-    SWIFT[Thin Swift speech adapter]
+    SPEECH[Speech adapter: CoreAudio, Silero VAD, Whisper]
     DB[(Encrypted SQLite)]
     MODELS[Local model adapters]
     CLOUD[Approved external AI]
 
     UI --> TA --> CORE
-    CORE --> SWIFT
+    CORE --> SPEECH
     CORE --> MODELS
     CORE --> DB
     CORE -. reviewed payload plus one-shot approval .-> CLOUD
@@ -30,13 +30,15 @@ flowchart LR
 
 The frontend is untrusted with respect to system access. It reaches native
 capabilities only through explicitly exposed Tauri commands. Domain behaviour
-lives in the Rust core, which knows nothing about Tauri, Swift, or the chosen
-web framework.
+lives in the Rust core, which knows nothing about Tauri, the speech runtime, or
+the chosen web framework.
 
 ## First-release capability
 
-- Paste text, import a text/Word/PDF document, or dictate through the microphone.
-- Transcribe locally after voice-activity detection.
+- Paste text, import a text/Word/PDF document, or dictate through the microphone
+  into the source text, per-document instructions and template instructions.
+- Transcribe locally after voice-activity detection; dictation audio stays in
+  memory and is discarded after transcription.
 - Detect direct and indirect identifiers using independent local passes.
 - Apply consistent pseudonymisation, generalisation, and constrained cleanup.
 - Require clinician review before saving or copying transformed text.
@@ -61,7 +63,7 @@ access, autonomous clinical decisions, and cloud processing are later concerns.
 | Web frontend   | Capture interaction, render diffs and detections, collect explicit decisions                  |
 | Tauri adapter  | Narrow commands, capability enforcement, event/stream translation                             |
 | Rust core      | Sessions, detection orchestration, transformations, review state, retention and egress policy |
-| Swift adapter  | SpeechAnalyzer/SpeechDetector invocation and timestamped transcript results only              |
+| Speech adapter | Microphone capture, Silero voice activity, Whisper; timestamped provisional/final text only   |
 | Model adapters | Embedded NER, local contextual privacy sweep, and constrained cleanup                         |
 | SQLite adapter | SQLCipher connections, migrations, note/audio persistence, FTS5                               |
 | Egress adapter | Disabled-by-default submission of one approved payload to one configured destination          |
@@ -96,12 +98,12 @@ These are stable domain shapes, not committed Rust or IPC schemas:
 | Desktop shell      | Tauri 2.11 line with WKWebView; initial Clinician’s Veil welcome shell                                                                                                            | Decided                                                             |
 | Core               | Plain Rust library behind adapters                                                                                                                                                | Decided                                                             |
 | Persistence        | `rusqlite`, bundled SQLCipher, FTS5                                                                                                                                               | Implemented for reviewed text notes and their original documents; audio retention pending |
-| Speech             | SpeechAnalyzer first; benchmark against WhisperKit                                                                                                                                | Benchmark gate                                                      |
+| Speech             | Whisper large-v3 turbo (q5_0) through statically linked whisper.cpp 1.8.3 with Metal, gated by whisper.cpp's Silero VAD; in-process, push-to-talk                                | Implemented; target-hardware and clinical-vocabulary benchmark pending |
 | Detection          | Embedded Rust rules plus pinned BERT NER/ONNX baseline for in-memory text review; no Python sidecar                                                                               | Implemented baseline; target-hardware/clinical validation pending   |
 | Local LLM          | Llama 3.2 1B, sequentially loaded, for privacy sweep and cleanup                                                                                                                  | Benchmark gate                                                      |
 | Search             | FTS5/BM25 in the first release                                                                                                                                                    | Implemented for reviewed pasted and imported text; originals excluded                          |
 | Semantic search    | `sqlite-vec` integration seam only                                                                                                                                                | Deferred                                                            |
-| Audio retention    | Encrypted source audio and aligned transcript for 30 days                                                                                                                         | Decided                                                             |
+| Audio retention    | Encrypted source audio and aligned transcript for 30 days                                                                                                                         | Decided; not implemented — dictation audio is memory-only and discarded |
 | Patient documents  | Versioned local templates, encrypted document/profile records, exact request-token preparation, local restoration, rich editing and local PDF export                            | Implemented; Word export pending                                    |
 | External AI        | OpenAI Responses API for the named patient-document use case; unavailable pending governance approval and approved model/data controls                                            | Gated before clinical text is loaded                                |
 | Frontend framework | Vite/TypeScript for the initial shell; command boundary remains enforced                                                                                                          | Decided                                                             |

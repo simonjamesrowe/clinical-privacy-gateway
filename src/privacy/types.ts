@@ -184,7 +184,38 @@ export interface PrivacyBridge {
   available: boolean;
   call<T>(command: string, args?: Record<string, unknown>): Promise<T>;
   progress(callback: (event: Progress) => void): Promise<() => void>;
+  /** A per-call native channel; its messages arrive in order until the call's work ends. */
+  channel?<T>(onMessage: (message: T) => void): unknown;
 }
+
+export type MicrophoneAccess =
+  | "authorized"
+  | "denied"
+  | "restricted"
+  | "notDetermined";
+export interface DictationStatus extends ModelStatus {
+  microphone: MicrophoneAccess;
+}
+/** Events for one recording. Audio never crosses the bridge. */
+export type DictationEvent =
+  | {
+      kind: "state";
+      session: number;
+      state: "listening" | "loadingModel" | "ready" | "limitReached";
+    }
+  | { kind: "level"; session: number; level: number; speaking: boolean }
+  | { kind: "provisional"; session: number; utterance: number; text: string }
+  | {
+      kind: "final";
+      session: number;
+      utterance: number;
+      text: string;
+      startMs: number;
+      endMs: number;
+    }
+  | { kind: "finished"; session: number }
+  | { kind: "cancelled"; session: number }
+  | { kind: "failed"; session: number; message: string };
 
 export interface DocumentMetadata {
   name: string;

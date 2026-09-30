@@ -9,7 +9,12 @@ import {
   type Mock,
 } from "vitest";
 import { TextReviewPage, type WorkspaceScreen } from "./page";
-import type { PrivacyBridge, Progress, ReviewSession } from "./types";
+import type {
+  DictationEvent,
+  PrivacyBridge,
+  Progress,
+  ReviewSession,
+} from "./types";
 
 const source = "Alex Morgan takes 10 mg.";
 const initial: ReviewSession = {
@@ -79,6 +84,7 @@ let call: Mock<
   (command: string, args?: Record<string, unknown>) => Promise<unknown>
 >;
 let progress: (event: Progress) => void;
+let dictationEvent: (event: DictationEvent) => void;
 let unsubscribe: Mock<() => void>;
 let view: ReviewSession;
 const button = (selector: string) =>
@@ -106,6 +112,10 @@ async function mount(
     progress: async (cb) => {
       progress = cb;
       return unsubscribe;
+    },
+    channel: <T>(onMessage: (message: T) => void) => {
+      dictationEvent = onMessage as (event: DictationEvent) => void;
+      return { channel: true };
     },
   };
   page = new TextReviewPage(root, bridge, vi.fn(), initialScreen);
@@ -2106,5 +2116,152 @@ describe("template editing and settings sections", () => {
     expect(
       root.querySelector<HTMLInputElement>('input[name="displayName"]')?.value,
     ).toBe("Dr Synthetic");
+  });
+});
+
+describe("dictation", () => {
+  const speech = (overrides: Record<string, unknown> = {}) => ({
+    installed: true,
+    name: "Whisper large-v3 turbo",
+    bytes: 574_926_293,
+    revision: "5359861c739e955e79d9a303bcbc70fb988958b1",
+    microphone: "authorized",
+    ...overrides,
+  });
+  function withSpeech(status: () => Record<string, unknown>) {
+    const base = call.getMockImplementation()!;
+    call.mockImplementation(async (command, args) => {
+      if (command === "dictation_status") return status();
+      if (command === "start_dictation") return 9;
+      if (
+        command === "stop_dictation" ||
+        command === "install_dictation_model" ||
+        command === "remove_dictation_model"
+      )
+        return undefined;
+      return base(command, args);
+    });
+  }
+  const mic = () =>
+    root.querySelector<HTMLButtonElement>(".input-panel .dictation-button")!;
+
+  it("dictates final text into the source and blocks detection while recording", async () => {
+    withSpeech(() => speech());
+    await mount();
+    expect(mic().getAttribute("aria-keyshortcuts")).toBe("Control+Alt+D");
+    expect(mic().disabled).toBe(false);
+    mic().dispatchEvent(
+      new MouseEvent("pointerdown", { button: 0, cancelable: true }),
+    );
+    await flush();
+    expect(call).toHaveBeenCalledWith("start_dictation", {
+      events: { channel: true },
+    });
+    expect(button("[data-detect]").disabled).toBe(true);
+    expect(button("[data-example]").disabled).toBe(true);
+    dictationEvent({
+      kind: "final",
+      session: 9,
+      utterance: 1,
+      text: "Synthetic client reports low mood.",
+      startMs: 0,
+      endMs: 1_000,
+    });
+    expect(
+      root.querySelector<HTMLTextAreaElement>("#source-input")!.value,
+    ).toBe("Synthetic client reports low mood.");
+    expect(root.querySelector("#source-count")!.textContent).toBe(
+      "34 / 100,000 characters",
+    );
+    dictationEvent({ kind: "finished", session: 9 });
+    expect(button("[data-detect]").disabled).toBe(false);
+  });
+
+  it("dictates template instructions into the formatted editor", async () => {
+    mockLibrary({
+      list_document_templates: [],
+      create_document_template: { id: 8 },
+    });
+    withSpeech(() => speech());
+    await mount(true, "patients");
+    await click('[data-route="templates"]');
+    await click("[data-new-template]");
+    const templateMic = root.querySelector<HTMLButtonElement>(
+      '.dictation-button[aria-controls="template-instructions"]',
+    )!;
+    expect(templateMic.disabled).toBe(false);
+    templateMic.dispatchEvent(
+      new MouseEvent("pointerdown", { button: 0, cancelable: true }),
+    );
+    await flush();
+    expect(call).toHaveBeenCalledWith("start_dictation", {
+      events: { channel: true },
+    });
+    const surface = root.querySelector<HTMLElement>(
+      ".markdown-editor__surface [contenteditable]",
+    )!;
+    expect(surface.getAttribute("contenteditable")).toBe("false");
+    dictationEvent({
+      kind: "final",
+      session: 9,
+      utterance: 1,
+      text: "Summarise only the agreed plan.",
+      startMs: 0,
+      endMs: 1_000,
+    });
+    dictationEvent({ kind: "finished", session: 9 });
+    expect(surface.getAttribute("contenteditable")).toBe("true");
+    type("#template-name", "Synthetic summary");
+    type("#template-description", "Synthetic prompt");
+    await submit(".template-form");
+    expect(call).toHaveBeenCalledWith(
+      "create_document_template",
+      expect.objectContaining({
+        instructions: "Summarise only the agreed plan.",
+      }),
+    );
+  });
+
+  it("points to Settings when the speech model is missing", async () => {
+    withSpeech(() => speech({ installed: false }));
+    await mount();
+    expect(mic().disabled).toBe(true);
+    expect(root.querySelector("[data-dictation-status]")!.textContent).toBe(
+      "Download the local speech model in Settings to dictate.",
+    );
+    await click("[data-dictation-setup]");
+    await flush();
+    expect(root.querySelector("[data-settings-speech]")!.textContent).toContain(
+      "not installed",
+    );
+  });
+
+  it("downloads, verifies and removes the speech model from Settings", async () => {
+    let installed = false;
+    withSpeech(() => speech({ installed, microphone: "notDetermined" }));
+    await mount(true, "settings");
+    expect(button("[data-settings-install-speech]").textContent).toBe(
+      "Download speech model (575 MB)",
+    );
+    expect(root.querySelector("[data-settings-microphone]")!.textContent).toBe(
+      "Microphone access: macOS asks the first time you dictate.",
+    );
+    installed = true;
+    await click("[data-settings-install-speech]");
+    await flush();
+    expect(call).toHaveBeenCalledWith("install_dictation_model", {
+      operation: expect.any(Number),
+    });
+    expect(button("[data-settings-install-speech]").textContent).toBe(
+      "Verify speech model",
+    );
+    await click("[data-settings-remove-speech]");
+    installed = false;
+    await click("[data-confirm-remove-speech-model]");
+    await flush();
+    expect(call).toHaveBeenCalledWith("remove_dictation_model", undefined);
+    expect(root.querySelector("[data-settings-speech]")!.textContent).toContain(
+      "not installed",
+    );
   });
 });

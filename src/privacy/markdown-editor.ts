@@ -22,6 +22,13 @@ import {
   sinkListItem,
 } from "prosemirror-schema-list";
 import { h } from "./dom";
+import {
+  joinAt,
+  textareaTarget,
+  type DictationMark,
+  type DictationTarget,
+  type FieldLimit,
+} from "./dictation";
 import type {
   PatientDocumentBlock,
   PatientDocumentBody,
@@ -190,7 +197,11 @@ export function markdownEditor(
   value: string,
   onChange: (markdown: string) => void,
   options: { document?: boolean } = {},
-): { element: HTMLElement; destroy: () => void } {
+): {
+  element: HTMLElement;
+  destroy: () => void;
+  dictationTarget: (limit: FieldLimit) => DictationTarget;
+} {
   const host = h("div", { class: "markdown-editor__surface" });
   const source = h("textarea", {
     class: "markdown-source",
@@ -202,6 +213,8 @@ export function markdownEditor(
   });
   let markdown = value;
   let sourceMode = false;
+  // A dictation recording owns the insertion point: no editing, formatting or mode switch.
+  let busy = false;
   let refreshToolbar = () => {};
   const createState = (text: string) =>
     EditorState.create({
@@ -358,7 +371,7 @@ export function markdownEditor(
     for (const { button, command, active } of controls) {
       const pressed = active?.() ?? false;
       if (active) button.setAttribute("aria-pressed", String(pressed));
-      button.disabled = !pressed && !command(view.state);
+      button.disabled = busy || (!pressed && !command(view.state));
     }
   };
   refreshToolbar();
@@ -389,21 +402,106 @@ export function markdownEditor(
     editorIcon("source"),
   );
   source.hidden = true;
-  return {
-    element: h(
-      "div",
-      { class: "markdown-editor" },
-      h("div", { class: "editor-toolbar" }, formatting, toggle),
-      host,
-      source,
-      h(
-        "p",
-        { class: "hint" },
-        options.document
-          ? "Headings, bold and lists are saved in the document. ⌘B bold."
-          : "Headings, bold and lists are saved as Markdown. ⌘B bold · ⌘I italic.",
-      ),
+  const element = h(
+    "div",
+    { class: "markdown-editor" },
+    h("div", { class: "editor-toolbar" }, formatting, toggle),
+    host,
+    source,
+    h(
+      "p",
+      { class: "hint" },
+      options.document
+        ? "Headings, bold and lists are saved in the document. ⌘B bold."
+        : "Headings, bold and lists are saved as Markdown. ⌘B bold · ⌘I italic.",
     ),
-    destroy: () => view.destroy(),
+  );
+  type Snapshot = { source: boolean; markdown: string; inner?: unknown };
+  const dictationTarget = (limit: FieldLimit): DictationTarget => {
+    const text = textareaTarget(source, limit);
+    const inner = (mark: DictationMark): DictationMark => ({
+      ...mark,
+      snapshot: (mark.snapshot as Snapshot).inner,
+    });
+    return {
+      element,
+      begin: () => {
+        if (sourceMode) {
+          const mark = text.begin();
+          return {
+            ...mark,
+            snapshot: { source: true, markdown, inner: mark.snapshot },
+          };
+        }
+        const { selection } = view.state;
+        const start = TextSelection.near(selection.$from, 1).from;
+        const end = selection.empty
+          ? start
+          : Math.max(start, TextSelection.near(selection.$to, -1).to);
+        return { start, end, snapshot: { source: false, markdown } };
+      },
+      insert: (mark, spoken) => {
+        const snapshot = mark.snapshot as Snapshot;
+        if (snapshot.source) {
+          const next = text.insert(inner(mark), spoken);
+          return next && { ...next, snapshot };
+        }
+        const { doc } = view.state;
+        const size = doc.content.size;
+        const $from = TextSelection.near(
+          doc.resolve(Math.min(mark.start, size)),
+          1,
+        ).$from;
+        const from = $from.pos;
+        const $to = doc.resolve(Math.min(Math.max(mark.end, from), size));
+        const before =
+          $from.parentOffset === 0 ? "" : doc.textBetween(from - 1, from);
+        const after =
+          $to.parentOffset === $to.parent.content.size
+            ? ""
+            : doc.textBetween($to.pos, $to.pos + 1);
+        const insertion = joinAt(before, spoken, after);
+        const transaction = view.state.tr.insertText(insertion, from, $to.pos);
+        const next = defaultMarkdownSerializer.serialize(
+          view.state.apply(transaction).doc,
+        );
+        if (limit.measure(next) > limit.max) return null;
+        view.dispatch(transaction);
+        const end = from + insertion.length;
+        return { ...mark, start: end, end };
+      },
+      restore: (mark) => {
+        const snapshot = mark.snapshot as Snapshot;
+        if (snapshot.source) return text.restore(inner(mark));
+        markdown = snapshot.markdown;
+        source.value = markdown;
+        view.updateState(createState(markdown));
+        refreshToolbar();
+        onChange(markdown);
+      },
+      setBusy: (next) => {
+        busy = next;
+        view.setProps({ editable: () => !busy });
+        view.dom.setAttribute("aria-busy", String(busy));
+        text.setBusy(next);
+        toggle.disabled = busy;
+        refreshToolbar();
+      },
+      settle: (mark) => {
+        if ((mark.snapshot as Snapshot).source) return text.settle(inner(mark));
+        const { doc } = view.state;
+        const at = doc.resolve(Math.min(mark.start, doc.content.size));
+        view.focus();
+        view.dispatch(view.state.tr.setSelection(TextSelection.near(at, -1)));
+      },
+      describe: (id) => {
+        text.describe(id);
+        const ids = (view.dom.getAttribute("aria-describedby") ?? "")
+          .split(" ")
+          .filter((value) => value && value !== id);
+        view.dom.setAttribute("aria-describedby", [...ids, id].join(" "));
+      },
+    };
   };
+  return { element, destroy: () => view.destroy(), dictationTarget };
 }
