@@ -263,13 +263,9 @@ mod tests {
                 extracted.text
             );
         }
-        assert!(
-            !extracted
-                .text
-                .lines()
-                .any(|line| line.contains("Synthetic Patient") && line.contains("Date of birth")),
-            "a hard break was not rendered as a new line"
-        );
+        // Whether those lines come back separated depends on PDFKit's reading-order
+        // heuristics, which differ between macOS versions, so the split itself is
+        // asserted by `splits_runs_into_lines_at_hard_breaks` instead.
     }
 
     fn synthetic_export() -> DocumentExport {
