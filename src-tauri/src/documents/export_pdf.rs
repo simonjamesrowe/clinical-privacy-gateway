@@ -22,16 +22,46 @@ fn font_family() -> PrivacyResult<fonts::FontFamily<fonts::FontData>> {
     })
 }
 
-fn paragraph(runs: &[DocumentRun]) -> elements::Paragraph {
-    let mut paragraph = elements::Paragraph::default();
+/// Splits a block's runs into lines at the editor's hard breaks (`\n` inside a
+/// run). genpdf does not break lines itself and draws a newline as a missing
+/// glyph, so each line becomes its own paragraph.
+fn lines(runs: &[DocumentRun]) -> Vec<Vec<(&str, bool)>> {
+    let mut lines = vec![Vec::new()];
     for run in runs {
-        if run.bold {
-            paragraph.push_styled(&run.text, style::Style::new().bold());
-        } else {
-            paragraph.push(&run.text);
+        for (index, piece) in run.text.split('\n').enumerate() {
+            if index > 0 {
+                lines.push(Vec::new());
+            }
+            let piece = piece.trim_end_matches('\r');
+            if !piece.is_empty() {
+                lines
+                    .last_mut()
+                    .expect("lines starts non-empty")
+                    .push((piece, run.bold));
+            }
         }
     }
-    paragraph
+    lines
+}
+
+fn paragraph(runs: &[DocumentRun]) -> elements::LinearLayout {
+    let mut layout = elements::LinearLayout::vertical();
+    for line in lines(runs) {
+        if line.is_empty() {
+            layout.push(elements::Break::new(1));
+            continue;
+        }
+        let mut paragraph = elements::Paragraph::default();
+        for (text, bold) in line {
+            if bold {
+                paragraph.push_styled(text, style::Style::new().bold());
+            } else {
+                paragraph.push(text);
+            }
+        }
+        layout.push(paragraph);
+    }
+    layout
 }
 
 fn opaque_signature(bytes: &[u8]) -> PrivacyResult<Vec<u8>> {
@@ -179,6 +209,93 @@ mod tests {
                 .unwrap();
         }
         bytes
+    }
+
+    fn run(text: &str, bold: bool) -> DocumentRun {
+        DocumentRun {
+            text: text.into(),
+            bold,
+        }
+    }
+
+    #[test]
+    fn splits_runs_into_lines_at_hard_breaks() {
+        let runs = [
+            run("Re: ", true),
+            run("Synthetic Patient\nDate of birth: ", false),
+            run("01/01/1990", true),
+            run("\n\nEnd", false),
+        ];
+        assert_eq!(
+            super::lines(&runs),
+            vec![
+                vec![("Re: ", true), ("Synthetic Patient", false)],
+                vec![("Date of birth: ", false), ("01/01/1990", true)],
+                vec![],
+                vec![("End", false)],
+            ]
+        );
+    }
+
+    #[test]
+    fn renders_hard_breaks_as_separate_lines() {
+        let mut export = synthetic_export();
+        export.document.body.blocks = vec![DocumentBlock {
+            kind: BlockKind::Paragraph,
+            runs: vec![
+                run("Re: ", true),
+                run("Synthetic Patient\nDate of birth: 01/01/1990\n", false),
+                run("Reference: SYN 0000", true),
+            ],
+        }];
+
+        let bytes = render(&export).unwrap();
+        let extracted =
+            super::super::pdf::extract(&bytes, &AtomicBool::new(false), |_, _| {}).unwrap();
+        for expected in [
+            "Re: Synthetic Patient",
+            "Date of birth: 01/01/1990",
+            "Reference: SYN 0000",
+        ] {
+            assert!(
+                extracted.text.contains(expected),
+                "missing {expected} in {:?}",
+                extracted.text
+            );
+        }
+        assert!(
+            !extracted
+                .text
+                .lines()
+                .any(|line| line.contains("Synthetic Patient") && line.contains("Date of birth")),
+            "a hard break was not rendered as a new line"
+        );
+    }
+
+    fn synthetic_export() -> DocumentExport {
+        DocumentExport {
+            document: PatientDocument {
+                id: 8,
+                patient_id: 4,
+                title: "Synthetic follow up letter".into(),
+                template_id: 1,
+                template_name: "Synthetic template".into(),
+                revision: 1,
+                body: DocumentBody { blocks: vec![] },
+                reviewed: false,
+                include_signature: false,
+                created_at: 1,
+                updated_at: 1,
+            },
+            clinician: ClinicianProfile {
+                display_name: String::new(),
+                role: String::new(),
+                qualifications: String::new(),
+                letter_header: String::new(),
+                has_signature: false,
+            },
+            signature: None,
+        }
     }
 
     #[test]
