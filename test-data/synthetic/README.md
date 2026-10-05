@@ -11,6 +11,10 @@ notes and 10 Markdown document prompt templates. Word/PDF/text versions share
 ten cases so you can compare extraction. Each case contains two dated visits,
 source identifiers, reported observations and explicit missing information.
 
+For one patient with several notes that build on each other (saved redactions, a dictated note,
+and a letter from all three), see [`walkthrough/`](walkthrough/README.md), the material behind
+the in-app Help videos.
+
 ## Try the workflow
 
 1. Create a test patient using a name and `SYN-` reference from `manifest.json`.
