@@ -31,9 +31,9 @@ Welcome
   ├─ New patient  → patient form
   ├─ New note     → searchable patient chooser
   ├─ New document → searchable patient chooser
-  └─ Patients · Notes · Documents · Redactions · Document prompt templates · Settings
+  └─ Patients · Notes · Documents · Redactions · Document prompt templates · Settings · Help
 
-App header (including Welcome): [mark] Clinician’s Veil   Patients  Notes  Documents  Redactions  Document prompt templates  Settings   ● On this Mac
+App header (including Welcome): [mark] Clinician’s Veil   Patients  Notes  Documents  Redactions  Document prompt templates  Settings  Help   ● On this Mac
 
 Patients                      searchable table
   New patient                 page form
@@ -47,6 +47,7 @@ Notes (all patients)          searchable table with Patient column; New note
 Redactions (all patients)     all-patients redactions table
 Document prompt templates     create, edit, duplicate, archive, restore
 Settings                      local model, OpenAI configuration, clinician details/signature
+Help                          bundled training films with chapters; also the native Help menu
 ```
 
 Screens are in-app states, not URLs: the desktop window has no back or forward

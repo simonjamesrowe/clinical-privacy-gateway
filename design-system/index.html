@@ -252,6 +252,62 @@
           </article>
         </section>
 
+        <section class="library-section" id="help">
+          <header>
+            <p class="eyebrow">Components</p>
+            <h2 class="section-title">Help film</h2>
+          </header>
+          <article class="specimen">
+            <h3>Help film</h3>
+            <ul class="specimen__rules">
+              <li>
+                A bundled training video with its title, running time, summary
+                and chapters.
+              </li>
+              <li>Never autoplay; captions are offered, not on by default.</li>
+              <li>A chapter button starts the film from that point.</li>
+            </ul>
+            <div class="specimen__demo specimen__demo--block">
+              <section
+                class="panel help-film"
+                aria-labelledby="specimen-help-film"
+              >
+                <div class="help-film__heading">
+                  <h2 class="section-title" id="specimen-help-film">
+                    Setting up
+                  </h2>
+                  <span class="help-film__time">1:59</span>
+                </div>
+                <p class="muted">A fresh install set up once.</p>
+                <div class="help-film__body">
+                  <video
+                    class="help-film__video"
+                    controls
+                    preload="none"
+                    aria-label="Setting up, 1:59"
+                  ></video>
+                  <ol
+                    class="help-film__chapters"
+                    aria-label="Setting up chapters"
+                  >
+                    <li>
+                      <button type="button" class="help-film__chapter">
+                        <span class="help-film__time">0:00</span
+                        ><span>A fresh install</span>
+                      </button>
+                    </li>
+                    <li>
+                      <button type="button" class="help-film__chapter">
+                        <span class="help-film__time">0:33</span
+                        ><span>A signature, drawn once</span>
+                      </button>
+                    </li>
+                  </ol>
+                </div>
+              </section>
+            </div>
+          </article>
+        </section>
         <section class="library-section" id="actions">
           <header>
             <p class="eyebrow">Components</p>

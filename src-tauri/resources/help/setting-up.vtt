@@ -1,0 +1,79 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:07.556
+This is Clinician's Veil on a fresh install: a Mac app for writing up clinical notes without the patient's identity leaving the machine.
+
+00:00:07.556 --> 00:00:09.944
+Before the first patient, I set it up once.
+
+00:00:09.944 --> 00:00:12.000
+Everything you will see is synthetic.
+
+00:00:12.603 --> 00:00:14.345
+Two models run on this Mac.
+
+00:00:14.345 --> 00:00:19.444
+A BERT model finds names, places and dates, and Whisper turns speech into text.
+
+00:00:19.444 --> 00:00:22.283
+Each one downloads once, then works offline.
+
+00:00:22.886 --> 00:00:24.061
+Next, my details.
+
+00:00:24.061 --> 00:00:29.660
+They go at the end of every letter, and this header goes at the top of every PDF.
+
+00:00:29.660 --> 00:00:32.286
+Dr Morgan Hale is a made-up clinician.
+
+00:00:33.456 --> 00:00:35.208
+And a signature, drawn once.
+
+00:00:35.208 --> 00:00:38.336
+Like everything in Settings, it stays on this Mac.
+
+00:00:42.186 --> 00:00:47.459
+The OpenAI key is already in the macOS Keychain, so it never appears on screen.
+
+00:00:47.459 --> 00:00:52.666
+The connection test passes, I choose GPT-6 Sol as the default model, and save.
+
+00:00:53.269 --> 00:01:01.603
+Nothing clinical can leave until four checks are recorded: organisational approval, the provider's terms, how the data is handled, and a rollback plan.
+
+00:01:01.603 --> 00:01:04.749
+Changing the key or the model switches sending off again.
+
+00:01:05.353 --> 00:01:07.590
+Letters come from prompt templates.
+
+00:01:07.590 --> 00:01:11.873
+Three are built in: a GP letter, a referral, and a progress report.
+
+00:01:12.475 --> 00:01:15.222
+I'll add my own: a progress update for the GP.
+
+00:01:15.222 --> 00:01:19.341
+I paste it in as Markdown, and it reads back as a formatted document.
+
+00:01:19.341 --> 00:01:24.715
+Its rules tell the model to use only what is in the notes, and never to guess an identity.
+
+00:01:26.624 --> 00:01:28.784
+It's saved, and ready for any patient.
+
+00:01:30.512 --> 00:01:32.592
+Underneath, it's one Mac app.
+
+00:01:33.202 --> 00:01:38.082
+A Rust core, an encrypted library, and the two models, all running here.
+
+00:01:38.687 --> 00:01:43.167
+And one way out: a single request, sent only when the clinician approves it.
+
+00:01:44.477 --> 00:01:52.957
+That was setting up Clinician's Veil: local models, a clinician's details and signature, a governed connection to OpenAI, and a letter template.
+
+00:01:52.957 --> 00:01:57.197
+Everything except the one request a clinician approves stays on the Mac.

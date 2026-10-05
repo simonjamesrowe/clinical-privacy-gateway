@@ -114,6 +114,25 @@ The Tauri adapter owns one in-memory review and one cancellable operation. Copy
 uses the backend-owned reviewed revision. Input and model errors are mapped to
 content-free messages; progress events carry only stage/count/operation metadata.
 
+## Help menu and bundled films
+
+The native menu bar has a **Help** menu: "Clinician’s Veil Help" opens the Help
+screen, and one "Watch:" item per film opens it at that film. A click emits
+`show-help` with the film's slug (or none), and the frontend opens the Help
+screen, from the Welcome screen if no workspace is open. The slugs are listed
+once in Rust (`HELP_FILMS` in `src-tauri/src/lib.rs`) and once in
+`src/privacy/help.ts`, and a Rust test asserts that every film's MP4, WebVTT
+captions and WebP poster are present in `src-tauri/resources/help/`.
+
+The films are bundle resources (`help/` in the app's Resources), not part of the
+embedded frontend, and the web view loads them through Tauri's asset protocol
+(`convertFileSrc` on `resolveResource`). WKWebView streams MP4 with HTTP Range
+requests, which the asset protocol answers. The protocol is enabled only for
+`$RESOURCE/help/*`, and the CSP adds `asset:` sources for media and images and
+nothing else, so no other file on the Mac becomes readable from the web view.
+The films are about 22 MB, play only when asked, and never autoplay; nothing is
+fetched from the network.
+
 ## Development and packaging
 
 - The primary macOS window is maximized from native setup, after AppKit has

@@ -1,0 +1,6 @@
+SYNTHETIC TEST DATA - fictional people, places and clinical scenarios. Not for clinical use.
+Initial assessment
+Patient: Isla Penrose. Reference: SYN-0011. Date of birth: 14/02/1991. Address: 11 Lantern Row, Exampleford, XX1 4XX. Email: isla.penrose@example.invalid. Telephone: 07700 900011. GP: Dr Amara Okafor, Exampleford Practice.
+Seen at Exampleford Community Therapy on 08 September 2026, referred by her GP for worry and poor sleep.
+Isla reports worrying most days since moving to a night planning role at Harbourline Logistics in June. She falls asleep easily but wakes at around 3am and cannot get back to sleep. She has not missed any work. No previous contact with psychological services is recorded.
+Agreed plan: six sessions using a CBT-informed approach, starting with a two-week sleep diary and a fixed wake time. Next appointment 22 September 2026.

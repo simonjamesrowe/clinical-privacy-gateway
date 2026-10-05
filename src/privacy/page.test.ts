@@ -9,6 +9,7 @@ import {
   type Mock,
 } from "vitest";
 import { TextReviewPage, type WorkspaceScreen } from "./page";
+import { HELP_FILMS } from "./help";
 import type {
   DictationEvent,
   PrivacyBridge,
@@ -2263,5 +2264,132 @@ describe("dictation", () => {
     expect(root.querySelector("[data-settings-speech]")!.textContent).toContain(
       "not installed",
     );
+  });
+});
+
+describe("Help", () => {
+  async function mountWithHelp(initialScreen: WorkspaceScreen = "help") {
+    const bridge: PrivacyBridge = {
+      available: true,
+      call: <T>(command: string, args?: Record<string, unknown>) =>
+        call(command, args) as Promise<T>,
+      progress: async (cb) => {
+        progress = cb;
+        return unsubscribe;
+      },
+      helpFilm: async (file) => `asset://localhost/help/${file}`,
+    };
+    page = new TextReviewPage(root, bridge, vi.fn(), initialScreen);
+    await page.mount();
+  }
+
+  it("lists every bundled film with its poster, captions and chapters", async () => {
+    await mountWithHelp();
+    expect(root.querySelector('[data-route="help"]')).not.toBeNull();
+    expect(root.querySelector("#help-title")?.textContent).toBe(
+      "Learn Clinician’s Veil",
+    );
+    expect(
+      root.querySelector('[data-route="help"]')?.getAttribute("aria-current"),
+    ).toBe("page");
+    const films = [...root.querySelectorAll<HTMLElement>(".help-film")];
+    expect(films.map((film) => film.querySelector("h2")?.textContent)).toEqual(
+      HELP_FILMS.map((film) => film.title),
+    );
+    const video = films[0].querySelector("video")!;
+    expect(video.getAttribute("src")).toBe(
+      "asset://localhost/help/overview.mp4",
+    );
+    expect(video.getAttribute("poster")).toBe(
+      "asset://localhost/help/overview-poster.webp",
+    );
+    expect(video.hasAttribute("autoplay")).toBe(false);
+    const track = video.querySelector("track")!;
+    expect(track.getAttribute("kind")).toBe("captions");
+    expect(track.getAttribute("src")).toBe(
+      "asset://localhost/help/overview.vtt",
+    );
+    expect(track.hasAttribute("default")).toBe(false);
+    expect(films[0].querySelectorAll(".help-film__chapter")).toHaveLength(
+      HELP_FILMS[0].chapters.length,
+    );
+  });
+
+  it("jumps to a chapter and plays from there", async () => {
+    const play = vi
+      .spyOn(HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined);
+    const times = new WeakMap<HTMLMediaElement, number>();
+    const descriptor = Object.getOwnPropertyDescriptor(
+      HTMLMediaElement.prototype,
+      "currentTime",
+    );
+    Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
+      configurable: true,
+      get(this: HTMLMediaElement) {
+        return times.get(this) ?? 0;
+      },
+      set(this: HTMLMediaElement, value: number) {
+        times.set(this, value);
+      },
+    });
+    try {
+      await mountWithHelp("help");
+      const letter = root.querySelector<HTMLElement>(
+        '[aria-labelledby="help-the-letter"]',
+      )!;
+      const chapter = [
+        ...letter.querySelectorAll<HTMLButtonElement>(".help-film__chapter"),
+      ].find((button) => button.textContent?.includes("The exported PDF"))!;
+      chapter.click();
+      expect(letter.querySelector("video")!.currentTime).toBe(69);
+      expect(play).toHaveBeenCalledTimes(1);
+    } finally {
+      if (descriptor)
+        Object.defineProperty(
+          HTMLMediaElement.prototype,
+          "currentTime",
+          descriptor,
+        );
+      play.mockRestore();
+    }
+  });
+
+  it("opens at one film from the Help menu", async () => {
+    await mountWithHelp();
+    await page.openHelp("patient-notes");
+    await flush();
+    expect(root.querySelector("#help-title")).not.toBeNull();
+    expect(document.activeElement?.id).toBe("help-patient-notes");
+  });
+
+  it("says the films are loading until they are resolved, not unavailable", async () => {
+    let resolveFilm: (url: string) => void = () => undefined;
+    const bridge: PrivacyBridge = {
+      available: true,
+      call: <T>(command: string, args?: Record<string, unknown>) =>
+        call(command, args) as Promise<T>,
+      progress: async (cb) => {
+        progress = cb;
+        return unsubscribe;
+      },
+      helpFilm: () =>
+        new Promise<string>((resolve) => {
+          resolveFilm = resolve;
+        }),
+    };
+    page = new TextReviewPage(root, bridge, vi.fn(), "help");
+    void page.mount();
+    await flush();
+    expect(root.textContent).toContain("Loading the films…");
+    expect(root.textContent).not.toContain("Help films are unavailable");
+    resolveFilm("asset://localhost/help/x");
+  });
+
+  it("explains when the films are not available", async () => {
+    await mount(false, "help");
+    expect(root.querySelector("#help-title")).not.toBeNull();
+    expect(root.querySelector("video")).toBeNull();
+    expect(root.textContent).toContain("Help films are unavailable");
   });
 });

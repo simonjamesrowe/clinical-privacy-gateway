@@ -186,6 +186,8 @@ export interface PrivacyBridge {
   progress(callback: (event: Progress) => void): Promise<() => void>;
   /** A per-call native channel; its messages arrive in order until the call's work ends. */
   channel?<T>(onMessage: (message: T) => void): unknown;
+  /** A playable URL for a Help film file bundled with the app. */
+  helpFilm?(file: string): Promise<string>;
 }
 
 export type MicrophoneAccess =

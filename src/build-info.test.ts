@@ -4,7 +4,7 @@ import { aboutBuildLine, localBuildInfo } from "./build-info";
 describe("aboutBuildLine", () => {
   it("labels local builds without presenting them as releases", () => {
     expect(aboutBuildLine(localBuildInfo)).toBe(
-      "Version 0.1.0 · local development build",
+      "Version 0.2.0 · local development build",
     );
   });
 
