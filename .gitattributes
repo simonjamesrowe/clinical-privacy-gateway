@@ -3,3 +3,7 @@ licenses/* linguist-vendored
 # Preserve generated document fixtures byte-for-byte.
 *.pdf binary
 *.docx binary
+
+# Bundled Help films and their posters.
+*.mp4 binary
+*.webp binary

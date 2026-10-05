@@ -1,0 +1,61 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:04.611
+Isla Penrose has three reviewed notes, and Dr Hale needs to update her GP.
+
+00:00:04.611 --> 00:00:09.160
+A frontier model can draft that in seconds, from the pseudonymised notes.
+
+00:00:09.762 --> 00:00:11.920
+A new document from my GP template.
+
+00:00:11.920 --> 00:00:16.482
+I select all three notes, oldest first, and add one instruction of my own.
+
+00:00:22.204 --> 00:00:29.604
+Before anything is sent, I see where it is going, which model, roughly what it will cost, and each note exactly as it will be read.
+
+00:00:30.206 --> 00:00:35.886
+In the exact request, every identifying detail, across all three notes, is a one-off token.
+
+00:00:36.489 --> 00:00:39.369
+One approved request goes to GPT-6 Sol.
+
+00:00:46.327 --> 00:00:50.447
+The draft comes back, and the details are put back here, on this Mac.
+
+00:00:51.410 --> 00:00:53.490
+It's a draft for me to edit, like any letter.
+
+00:00:55.687 --> 00:01:00.047
+I add my signature, mark it as reviewed, and export it as a PDF.
+
+00:01:09.648 --> 00:01:14.975
+Here's the letter: the clinic's header, the update, and the signature, all added on this Mac.
+
+00:01:14.975 --> 00:01:16.808
+The model never saw any of them.
+
+00:01:17.411 --> 00:01:20.813
+Every send is recorded here, without any of its content.
+
+00:01:20.813 --> 00:01:25.491
+When a receipt can't be priced exactly, it says unknown rather than guessing.
+
+00:01:26.094 --> 00:01:28.134
+Here's the whole journey.
+
+00:01:28.744 --> 00:01:32.504
+Capture, detection, review and storage happen on the Mac.
+
+00:01:33.107 --> 00:01:37.187
+Only a tokenised request leaves, once, after I approve it.
+
+00:01:37.792 --> 00:01:42.832
+The details are restored locally, and the letter is reviewed, signed and exported here.
+
+00:01:44.140 --> 00:01:51.117
+That was a letter from three notes in Clinician's Veil: one approved request, with the details restored and signed on the Mac.
+
+00:01:51.117 --> 00:01:55.380
+A frontier model did the drafting; the patient's identity never left the Mac.

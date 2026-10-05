@@ -9,6 +9,29 @@ mod privacy;
 mod storage;
 
 const ABOUT_MENU_ID: &str = "about";
+const HELP_MENU_ID: &str = "help";
+const HELP_FILM_MENU_PREFIX: &str = "help:";
+/// The bundled Help films, in the order the Help menu and screen list them.
+/// Slugs match the file names in `resources/help/` and `src/privacy/help.ts`.
+const HELP_FILMS: [(&str, &str); 4] = [
+    ("overview", "Overview"),
+    ("setting-up", "Setting up"),
+    ("patient-notes", "A patient and her notes"),
+    ("the-letter", "The letter"),
+];
+
+/// The Help screen to open for a menu item: `Some(None)` for the screen itself,
+/// `Some(Some(slug))` for one film, `None` for any other item.
+fn help_target(menu_id: &str) -> Option<Option<&'static str>> {
+    if menu_id == HELP_MENU_ID {
+        return Some(None);
+    }
+    let slug = menu_id.strip_prefix(HELP_FILM_MENU_PREFIX)?;
+    HELP_FILMS
+        .iter()
+        .find(|(film, _)| *film == slug)
+        .map(|(film, _)| Some(*film))
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,7 +111,39 @@ fn application_menu(app: &tauri::App) -> tauri::Result<Menu<tauri::Wry>> {
         ],
     )?;
 
-    Menu::with_items(app, &[&app_submenu, &file_submenu, &edit_submenu])
+    let help = MenuItem::with_id(
+        app,
+        HELP_MENU_ID,
+        "Clinician’s Veil Help",
+        true,
+        None::<&str>,
+    )?;
+    let films = HELP_FILMS
+        .iter()
+        .map(|(slug, title)| {
+            MenuItem::with_id(
+                app,
+                format!("{HELP_FILM_MENU_PREFIX}{slug}"),
+                format!("Watch: {title}"),
+                true,
+                None::<&str>,
+            )
+        })
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let help_separator = PredefinedMenuItem::separator(app)?;
+    let mut help_items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+        vec![&help, &help_separator];
+    help_items.extend(
+        films
+            .iter()
+            .map(|item| item as &dyn tauri::menu::IsMenuItem<tauri::Wry>),
+    );
+    let help_submenu = Submenu::with_items(app, "Help", true, &help_items)?;
+
+    Menu::with_items(
+        app,
+        &[&app_submenu, &file_submenu, &edit_submenu, &help_submenu],
+    )
 }
 
 pub fn run() {
@@ -179,10 +234,42 @@ pub fn run() {
             }
         })
         .on_menu_event(|app, event| {
-            if event.id().as_ref() == ABOUT_MENU_ID {
+            let id = event.id().as_ref();
+            if id == ABOUT_MENU_ID {
                 let _ = app.emit("show-about", ());
+            } else if let Some(film) = help_target(id) {
+                let _ = app.emit("show-help", film);
             }
         })
         .run(tauri::generate_context!())
         .expect("error while running Clinician’s Veil");
+}
+
+#[cfg(test)]
+mod help_menu_tests {
+    use super::*;
+
+    #[test]
+    fn help_menu_items_open_the_help_screen_or_one_film() {
+        assert_eq!(help_target("help"), Some(None));
+        for (slug, _) in HELP_FILMS {
+            assert_eq!(help_target(&format!("help:{slug}")), Some(Some(slug)));
+        }
+        assert_eq!(help_target("help:unknown"), None);
+        assert_eq!(help_target("about"), None);
+    }
+
+    #[test]
+    fn every_help_film_is_bundled() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/help");
+        for (slug, _) in HELP_FILMS {
+            for file in [
+                format!("{slug}.mp4"),
+                format!("{slug}.vtt"),
+                format!("{slug}-poster.webp"),
+            ] {
+                assert!(dir.join(&file).is_file(), "missing resources/help/{file}");
+            }
+        }
+    }
 }

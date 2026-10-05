@@ -23,7 +23,11 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost; media-src asset: http://asset.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$RESOURCE/help/*"]
+      }
     }
   },
   "bundle": {
@@ -33,7 +37,8 @@
     "resources": {
       "../LICENSE": "LICENSE",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
-      "../licenses/": "licenses/"
+      "../licenses/": "licenses/",
+      "resources/help/": "help/"
     },
     "macOS": {
       "signingIdentity": "-",

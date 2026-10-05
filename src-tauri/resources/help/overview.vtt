@@ -1,0 +1,91 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:04.905
+A clinician's notes are full of people: names, dates of birth, addresses.
+
+00:00:04.905 --> 00:00:11.960
+The best AI models can draft a referral letter in seconds, but those notes can't just be pasted into one.
+
+00:00:12.562 --> 00:00:15.589
+This is Clinician's Veil, with a synthetic patient.
+
+00:00:15.589 --> 00:00:19.743
+I import her referral notes as a PDF and check the text it pulled out.
+
+00:00:19.743 --> 00:00:21.642
+All of this happens on this Mac.
+
+00:00:23.155 --> 00:00:27.755
+Finding identifiers runs here too: pattern rules and a BERT model, offline.
+
+00:00:28.357 --> 00:00:30.068
+Every proposal is mine to decide.
+
+00:00:30.068 --> 00:00:33.439
+It flagged the word synthetic as an organisation, so I keep that.
+
+00:00:33.439 --> 00:00:37.277
+The name, the dates, the address and the phone number become placeholders.
+
+00:00:43.191 --> 00:00:44.513
+Local models miss things.
+
+00:00:44.513 --> 00:00:49.431
+The case reference and the house number weren't caught, so I select them and add them myself.
+
+00:00:52.571 --> 00:00:54.158
+On the left, the original.
+
+00:00:54.158 --> 00:00:57.211
+On the right, what a model will be allowed to see.
+
+00:00:57.814 --> 00:01:01.014
+The reviewed note is saved to an encrypted library on this Mac.
+
+00:01:02.332 --> 00:01:03.360
+Now the letter.
+
+00:01:03.360 --> 00:01:08.292
+I choose the referral template and the note, and the model is GPT-6 Sol.
+
+00:01:10.377 --> 00:01:16.337
+Before anything leaves, I see where it is going, which model, and roughly what it will cost.
+
+00:01:16.940 --> 00:01:18.815
+And this is the exact request.
+
+00:01:18.815 --> 00:01:21.565
+Every identifying detail is a one-off token.
+
+00:01:21.565 --> 00:01:23.940
+No name, no date of birth, no address.
+
+00:01:24.543 --> 00:01:28.823
+I approve this one request, and GPT-6 Sol drafts the letter.
+
+00:01:34.761 --> 00:01:38.882
+The tokens come back, and the real details are put back here, on this Mac.
+
+00:01:38.882 --> 00:01:42.001
+The letter names the patient, and the request never did.
+
+00:01:42.604 --> 00:01:46.124
+I save the draft for review, and export it as a PDF.
+
+00:01:48.717 --> 00:01:50.077
+Here's how it fits together.
+
+00:01:50.688 --> 00:01:54.448
+Capture, detection, review and storage all happen on the Mac.
+
+00:01:55.052 --> 00:02:01.612
+Only a tokenised request leaves, once, after I approve it, and OpenAI is asked not to store it.
+
+00:02:02.216 --> 00:02:07.656
+The draft comes back, the details are restored locally, and I review the letter before it goes anywhere.
+
+00:02:08.963 --> 00:02:14.414
+That was Clinician's Veil, a Mac app that de-identifies clinical notes before any AI sees them.
+
+00:02:14.414 --> 00:02:18.603
+The model writes the letter; the patient's identity never leaves the Mac.

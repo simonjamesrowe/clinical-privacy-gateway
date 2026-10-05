@@ -66,6 +66,7 @@ import {
   type Unavailable,
 } from "./dictation";
 import { normalisePlaceholder, placeholderError } from "./placeholder";
+import { clock, HELP_FILMS, helpFiles, type HelpFilm } from "./help";
 import type { Progress } from "./types";
 
 type Work =
@@ -87,7 +88,8 @@ export type WorkspaceScreen =
   | "document-patient"
   | "redactions"
   | "templates"
-  | "settings";
+  | "settings"
+  | "help";
 type Section = Exclude<
   WorkspaceScreen,
   "patient-new" | "note-patient" | "document-patient"
@@ -105,7 +107,8 @@ type Route =
   | { name: "notes" }
   | { name: "redactions" }
   | { name: "templates" }
-  | { name: "settings" };
+  | { name: "settings" }
+  | { name: "help"; film?: string };
 /** Where the clinician goes once an unsaved review is discarded. */
 type Leave =
   | Route
@@ -245,6 +248,10 @@ export class TextReviewPage {
   private openedRevision: number | null = null;
   private saveError = "";
   private focusTarget: string | null = null;
+  /** Playable URLs for the bundled Help films, by file name. */
+  private helpUrls = new Map<string, string>();
+  /** Whether resolving the Help film files has finished, found or not. */
+  private helpResolved = false;
   private restoreFocus: string | null = null;
   private readonly keydown = (event: KeyboardEvent) => this.onKeydown(event);
   private dictationStatus: DictationStatus | null = null;
@@ -263,6 +270,11 @@ export class TextReviewPage {
       () => this.dictationUnavailable(),
       () => this.dictationChanged(),
     );
+  }
+
+  /** Opens Help, at one film when given; the native Help menu calls this. */
+  async openHelp(film?: string): Promise<void> {
+    await this.navigate({ name: "help", film });
   }
 
   async mount(): Promise<void> {
@@ -460,6 +472,8 @@ export class TextReviewPage {
           : this.documentsScreen();
       case "settings":
         return this.settingsScreen();
+      case "help":
+        return this.helpScreen();
     }
   }
   private section(): Section {
@@ -468,7 +482,8 @@ export class TextReviewPage {
       name === "documents" ||
       name === "redactions" ||
       name === "templates" ||
-      name === "settings"
+      name === "settings" ||
+      name === "help"
       ? name
       : name === "note-patient"
         ? "notes"
@@ -520,6 +535,7 @@ export class TextReviewPage {
           link("redactions", "Redactions"),
           link("templates", "Document prompt templates"),
           link("settings", "Settings"),
+          link("help", "Help"),
         ),
         h(
           "span",
@@ -716,7 +732,9 @@ export class TextReviewPage {
     await this.load(route);
     if (this.route.name === "patient" && this.patient) this.resetPatientDraft();
     this.message = options.flash ?? "";
-    this.focusTarget = options.focus ?? "h1";
+    this.focusTarget =
+      options.focus ??
+      (route.name === "help" && route.film ? `#help-${route.film}` : "h1");
     this.render();
   }
   private async load(route: Route): Promise<void> {
@@ -910,6 +928,26 @@ export class TextReviewPage {
           this.root.querySelector("[data-document-settings]")?.remove();
           this.signatureDraft = emptySignatureDraft();
         }
+        return;
+      }
+      case "help": {
+        if (this.helpUrls.size || !this.bridge.helpFilm) {
+          this.helpResolved = true;
+          return;
+        }
+        const resolve = this.bridge.helpFilm.bind(this.bridge);
+        const files = HELP_FILMS.flatMap((film) =>
+          Object.values(helpFiles(film)),
+        );
+        try {
+          const urls = await Promise.all(files.map((file) => resolve(file)));
+          this.helpUrls = new Map(
+            files.map((file, index) => [file, urls[index]]),
+          );
+        } catch {
+          this.helpUrls = new Map();
+        }
+        this.helpResolved = true;
         return;
       }
       default:
@@ -3718,6 +3756,98 @@ export class TextReviewPage {
         "While you review a note for this patient, choose to save a replacement and it will appear here.",
       ),
     ];
+  }
+  private helpScreen(): Node[] {
+    const header = pageHeader({
+      eyebrow: "Help",
+      title: ["Learn Clinician’s Veil"],
+      id: "help-title",
+      description:
+        "Short films of this app at work, with fictional patients and synthetic voices. They play from this Mac; nothing is downloaded.",
+    });
+    // Until the files are resolved (the app is still starting), say so rather
+    // than calling the films unavailable.
+    if (this.helpUrls.size === 0 && this.bridge.available && !this.helpResolved)
+      return [header, h("p", { class: "muted" }, "Loading the films…")];
+    if (this.helpUrls.size === 0)
+      return [
+        header,
+        emptyState(
+          "Help films are unavailable",
+          "They are bundled with the Mac app. Open Clinician’s Veil from Applications to watch them.",
+        ),
+      ];
+    return [header, ...HELP_FILMS.map((film) => this.helpFilm(film))];
+  }
+  private helpFilm(film: HelpFilm): HTMLElement {
+    const files = helpFiles(film);
+    const video = h(
+      "video",
+      {
+        class: "help-film__video",
+        controls: true,
+        preload: "metadata",
+        playsinline: true,
+        poster: this.helpUrls.get(files.poster),
+        src: this.helpUrls.get(files.video),
+        "aria-label": `${film.title}, ${clock(film.duration)}`,
+      },
+      h("track", {
+        kind: "captions",
+        srclang: "en",
+        label: "English",
+        src: this.helpUrls.get(files.captions),
+      }),
+    );
+    const chapter = (at: number, label: string) =>
+      h(
+        "li",
+        {},
+        h(
+          "button",
+          {
+            type: "button",
+            class: "help-film__chapter",
+            onclick: () => {
+              video.currentTime = at;
+              void video.play().catch(() => undefined);
+            },
+          },
+          h("span", { class: "help-film__time" }, clock(at)),
+          h("span", {}, label),
+        ),
+      );
+    return h(
+      "section",
+      {
+        class: "panel help-film",
+        "aria-labelledby": `help-${film.slug}`,
+      },
+      h(
+        "div",
+        { class: "help-film__heading" },
+        h(
+          "h2",
+          { class: "section-title", id: `help-${film.slug}`, tabindex: "-1" },
+          film.title,
+        ),
+        h("span", { class: "help-film__time" }, clock(film.duration)),
+      ),
+      h("p", { class: "muted" }, film.summary),
+      h(
+        "div",
+        { class: "help-film__body" },
+        video,
+        h(
+          "ol",
+          {
+            class: "help-film__chapters",
+            "aria-label": `${film.title} chapters`,
+          },
+          ...film.chapters.map((item) => chapter(item.at, item.label)),
+        ),
+      ),
+    );
   }
   private redactionsScreen(): Node[] {
     return [

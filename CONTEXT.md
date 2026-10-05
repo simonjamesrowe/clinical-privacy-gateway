@@ -133,3 +133,11 @@ Single-pass replacement of recognised request-specific tokens with the exact
 source details recorded for that submission. It never consults the saved
 redaction library or infers a missing detail.
 _Avoid_: Re-identification, de-tokenisation
+
+## Help
+
+**Help film**:
+A short training video of the app at work, bundled with it and played offline,
+using fictional patients, a fictional clinician and synthetic voices.
+_Avoid_: Tutorial, demo
+

@@ -1,4 +1,5 @@
-import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
+import { Channel, convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
+import { resolveResource } from "@tauri-apps/api/path";
 import { listen } from "@tauri-apps/api/event";
 import { aboutBuildLine, localBuildInfo, type BuildInfo } from "./build-info";
 import "./styles/app.css";
@@ -36,7 +37,7 @@ function render(): void {
     <header class="app-header welcome-header">
       <div class="app-header__inner">
         <span class="brand welcome-brand"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span><span>Clinician’s Veil</span></span>
-        <nav class="primary-nav" aria-label="Application"><button type="button" data-open-patients>Patients</button><button type="button" data-open-notes>Notes</button><button type="button" data-open-documents>Documents</button><button type="button" data-open-redactions>Redactions</button><button type="button" data-open-templates>Document prompt templates</button><button type="button" data-open-settings>Settings</button></nav>
+        <nav class="primary-nav" aria-label="Application"><button type="button" data-open-patients>Patients</button><button type="button" data-open-notes>Notes</button><button type="button" data-open-documents>Documents</button><button type="button" data-open-redactions>Redactions</button><button type="button" data-open-templates>Document prompt templates</button><button type="button" data-open-settings>Settings</button><button type="button" data-open-help>Help</button></nav>
         <span class="local-indicator">On this Mac</span>
       </div>
     </header>
@@ -65,7 +66,7 @@ function render(): void {
   app
     .querySelector<HTMLButtonElement>("[data-close-about]")
     ?.addEventListener("click", closeAbout);
-  const openWorkspace = (screen: WorkspaceScreen) => {
+  openWorkspace = (screen: WorkspaceScreen) => {
     const workspace = document.createElement("div");
     app.querySelector(".welcome-header")?.remove();
     app.querySelector(".welcome")?.replaceWith(workspace);
@@ -79,6 +80,10 @@ function render(): void {
             callback(event.payload),
           ),
         channel: (onMessage) => new Channel(onMessage),
+        // Help films are bundled resources, served through the asset protocol
+        // (scoped to the help folder) so the web view can stream them.
+        helpFilm: async (file) =>
+          convertFileSrc(await resolveResource(`help/${file}`)),
       },
       () => {
         page = null;
@@ -115,6 +120,18 @@ function render(): void {
   app
     .querySelector<HTMLButtonElement>("[data-open-settings]")
     ?.addEventListener("click", () => openWorkspace("settings"));
+  app
+    .querySelector<HTMLButtonElement>("[data-open-help]")
+    ?.addEventListener("click", () => openWorkspace("help"));
+}
+
+let openWorkspace: (screen: WorkspaceScreen) => void = () => undefined;
+
+/** The native Help menu: Help itself, or one film. */
+async function showHelp(film: string | null): Promise<void> {
+  closeAbout();
+  if (!page) openWorkspace("help");
+  await page?.openHelp(film ?? undefined);
 }
 
 function aboutDialog(): HTMLDialogElement | null {
@@ -142,4 +159,10 @@ async function loadBuildInfo(): Promise<void> {
 
 render();
 void loadBuildInfo();
-if (isTauri()) void listen("show-about", showAbout);
+if (isTauri()) {
+  void listen("show-about", showAbout);
+  void listen<string | null>(
+    "show-help",
+    (event) => void showHelp(event.payload),
+  );
+}

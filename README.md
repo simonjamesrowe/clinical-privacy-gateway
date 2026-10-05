@@ -11,7 +11,9 @@ or an autonomous anonymisation system.
 ## Current app
 
 **Clinician’s Veil** opens with a welcome screen, native macOS menus and build
-information. Start in **Patients**: add or select a patient, then create a new
+information. **Help** (in the header and the Help menu) has short training
+films of the app at work, bundled with it and played offline, using fictional
+patients and synthetic voices. Start in **Patients**: add or select a patient, then create a new
 note to type, paste, or import source text (up to 100,000 Unicode characters).
 Import `.txt`, `.docx`, or PDFs with selectable text; saving retains the exact
 original in the encrypted library. Use the document icon in Notes to preview it. Download the
