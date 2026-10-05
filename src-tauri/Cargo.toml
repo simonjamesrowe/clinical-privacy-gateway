@@ -1,6 +1,6 @@
 [package]
 name = "clinicians-veil"
-version = "0.1.0"
+version = "0.2.0"
 description = "A local-first clinical privacy workspace"
 authors = ["Simon Rowe"]
 edition.workspace = true

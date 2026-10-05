@@ -7,11 +7,11 @@ export interface BuildInfo {
 }
 
 export const localBuildInfo: BuildInfo = {
-  version: "0.1.0",
+  version: "0.2.0",
   buildNumber: "local",
   revision: "local",
   isRelease: false,
-  displayVersion: "Version 0.1.0 · local development build",
+  displayVersion: "Version 0.2.0 · local development build",
 };
 
 export function aboutBuildLine(build: BuildInfo): string {
