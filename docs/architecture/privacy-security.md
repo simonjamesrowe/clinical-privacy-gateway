@@ -42,6 +42,13 @@ in Keychain with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, which makes it
 available only while the device is unlocked and prevents migration to another
 device. See [Apple's accessibility documentation](https://developer.apple.com/documentation/security/ksecattraccessiblewhenunlockedthisdeviceonly).
 
+Create the key only when Keychain reports no item (`errSecItemNotFound`) and no
+library file exists yet, and add it without replacing an existing item. Any
+other failure to read it (a denied prompt, a locked keychain, a build signed
+differently) fails closed with a message to allow access; it is never treated
+as a missing key. Treating it that way once replaced a stored key and left the
+existing library permanently unreadable.
+
 Secure Enclave wrapping is a technical spike, not a claim that the database key
 never enters application memory. The enclave can protect a wrapping or
 key-agreement private key, but SQLCipher requires usable key material in process

@@ -27,6 +27,11 @@ const OPENAI_KEYCHAIN_ACCOUNT: &str = "openai-api-key";
 static OPENAI_KEY_CACHE: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
 const STORAGE_ERROR: &str =
     "The encrypted note library is unavailable. Reopen the app and try again.";
+const KEY_UNAVAILABLE: &str = "Clinician’s Veil could not read its library key from Keychain. \
+     Reopen the app and choose Allow when macOS asks.";
+const KEY_MISSING: &str = "The key for this encrypted note library is missing from Keychain, \
+     so it cannot be opened. Nothing has been changed.";
+const LIBRARY_FILE: &str = "clinicians-veil.sqlite";
 const STORAGE_CONFLICT: &str = "A redaction with that phrase and category already exists.";
 const PATIENT_CONFLICT: &str = "A patient with that name already exists.";
 const PATIENT_UNAVAILABLE: &str = "This patient is no longer available.";
@@ -157,9 +162,11 @@ pub struct LibraryMatch {
 impl Storage {
     pub fn open(root: &Path) -> PrivacyResult<Self> {
         fs::create_dir_all(root).map_err(|_| STORAGE_ERROR)?;
-        let key = load_or_create_key()?;
+        let path = root.join(LIBRARY_FILE);
+        let library_exists = fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false);
+        let key = load_or_create_key(&LoginKeychain, library_exists)?;
         let storage = Self {
-            path: root.join("clinicians-veil.sqlite"),
+            path,
             key: Arc::new(key),
             gate: Arc::new(Mutex::new(())),
         };
@@ -1892,17 +1899,82 @@ fn mapping_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<MappingView> {
     })
 }
 
-fn load_or_create_key() -> PrivacyResult<[u8; 32]> {
-    if let Ok((password, _)) = find_generic_password(None, KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
-        return password.as_ref().try_into().map_err(|_| STORAGE_ERROR);
+/// What a Keychain lookup for the library key found.
+enum StoredKey {
+    Found(Vec<u8>),
+    /// No item exists (`errSecItemNotFound`).
+    Missing,
+    /// An item may exist but could not be read: access denied, keychain locked,
+    /// interaction not allowed, or any other failure.
+    Unavailable,
+}
+
+enum AddKey {
+    Added,
+    /// Another process created the item first (`errSecDuplicateItem`).
+    Duplicate,
+    Failed,
+}
+
+trait KeyStore {
+    fn find(&self) -> StoredKey;
+    /// Adds the item, never replacing an existing one.
+    fn add(&self, key: &[u8]) -> AddKey;
+}
+
+struct LoginKeychain;
+
+const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
+const ERR_SEC_DUPLICATE_ITEM: i32 = -25299;
+
+impl KeyStore for LoginKeychain {
+    fn find(&self) -> StoredKey {
+        match find_generic_password(None, KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
+            Ok((password, _)) => StoredKey::Found(password.as_ref().to_vec()),
+            Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => StoredKey::Missing,
+            Err(_) => StoredKey::Unavailable,
+        }
     }
-    let mut key = [0; 32];
-    fill(&mut key).map_err(|_| STORAGE_ERROR)?;
-    let keychain = SecKeychain::default().map_err(|_| STORAGE_ERROR)?;
-    keychain
-        .set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, &key)
-        .map_err(|_| STORAGE_ERROR)?;
-    Ok(key)
+
+    fn add(&self, key: &[u8]) -> AddKey {
+        let Ok(keychain) = SecKeychain::default() else {
+            return AddKey::Failed;
+        };
+        match keychain.add_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, key) {
+            Ok(()) => AddKey::Added,
+            Err(error) if error.code() == ERR_SEC_DUPLICATE_ITEM => AddKey::Duplicate,
+            Err(_) => AddKey::Failed,
+        }
+    }
+}
+
+/// Returns the library key, creating one only for a library that does not exist yet.
+///
+/// A key that cannot be read is never treated as a missing one: replacing it would
+/// make every existing note permanently unreadable. Before this, any failed read
+/// (a denied prompt, a locked keychain, a build signed differently) created a new
+/// key and overwrote the stored one.
+fn load_or_create_key(store: &impl KeyStore, library_exists: bool) -> PrivacyResult<[u8; 32]> {
+    let found = |password: Vec<u8>| -> PrivacyResult<[u8; 32]> {
+        password.as_slice().try_into().map_err(|_| STORAGE_ERROR)
+    };
+    match store.find() {
+        StoredKey::Found(password) => found(password),
+        StoredKey::Unavailable => Err(KEY_UNAVAILABLE),
+        StoredKey::Missing if library_exists => Err(KEY_MISSING),
+        StoredKey::Missing => {
+            let mut key = [0; 32];
+            fill(&mut key).map_err(|_| STORAGE_ERROR)?;
+            match store.add(&key) {
+                AddKey::Added => Ok(key),
+                AddKey::Duplicate => match store.find() {
+                    StoredKey::Found(password) => found(password),
+                    _ => Err(KEY_UNAVAILABLE),
+                },
+                AddKey::Failed => Err(STORAGE_ERROR),
+            }
+        }
+    }
 }
 
 pub fn openai_key_configured() -> bool {
@@ -2163,6 +2235,101 @@ fn fts_query(query: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+
+    /// A Keychain stand-in: `find` replays the given answers, `add` records every key offered.
+    struct FakeKeyStore {
+        finds: RefCell<Vec<super::StoredKey>>,
+        add: fn() -> super::AddKey,
+        added: RefCell<Vec<Vec<u8>>>,
+    }
+
+    impl FakeKeyStore {
+        fn new(finds: Vec<super::StoredKey>, add: fn() -> super::AddKey) -> Self {
+            Self {
+                finds: RefCell::new(finds),
+                add,
+                added: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl super::KeyStore for FakeKeyStore {
+        fn find(&self) -> super::StoredKey {
+            self.finds.borrow_mut().remove(0)
+        }
+        fn add(&self, key: &[u8]) -> super::AddKey {
+            self.added.borrow_mut().push(key.to_vec());
+            (self.add)()
+        }
+    }
+
+    #[test]
+    fn library_key_is_read_when_present() {
+        let store = FakeKeyStore::new(vec![super::StoredKey::Found(vec![4; 32])], || {
+            super::AddKey::Failed
+        });
+        assert_eq!(super::load_or_create_key(&store, true).unwrap(), [4; 32]);
+        assert!(store.added.borrow().is_empty());
+    }
+
+    #[test]
+    fn unreadable_library_key_is_never_replaced() {
+        // A denied prompt or locked keychain once created a new key over the stored one,
+        // leaving every existing note unreadable. It must fail and write nothing.
+        for library_exists in [true, false] {
+            let store =
+                FakeKeyStore::new(vec![super::StoredKey::Unavailable], || super::AddKey::Added);
+            assert_eq!(
+                super::load_or_create_key(&store, library_exists),
+                Err(super::KEY_UNAVAILABLE)
+            );
+            assert!(
+                store.added.borrow().is_empty(),
+                "no key may be written after a failed read"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_key_for_an_existing_library_is_not_recreated() {
+        let store = FakeKeyStore::new(vec![super::StoredKey::Missing], || super::AddKey::Added);
+        assert_eq!(
+            super::load_or_create_key(&store, true),
+            Err(super::KEY_MISSING)
+        );
+        assert!(store.added.borrow().is_empty());
+    }
+
+    #[test]
+    fn first_launch_adds_a_new_random_key() {
+        let store = FakeKeyStore::new(vec![super::StoredKey::Missing], || super::AddKey::Added);
+        let key = super::load_or_create_key(&store, false).unwrap();
+        assert_eq!(store.added.borrow().as_slice(), &[key.to_vec()]);
+        assert_ne!(key, [0; 32]);
+    }
+
+    #[test]
+    fn a_key_created_concurrently_is_used_rather_than_replaced() {
+        let store = FakeKeyStore::new(
+            vec![
+                super::StoredKey::Missing,
+                super::StoredKey::Found(vec![9; 32]),
+            ],
+            || super::AddKey::Duplicate,
+        );
+        assert_eq!(super::load_or_create_key(&store, false).unwrap(), [9; 32]);
+    }
+
+    #[test]
+    fn a_failed_add_reports_the_library_unavailable() {
+        let store = FakeKeyStore::new(vec![super::StoredKey::Missing], || super::AddKey::Failed);
+        assert_eq!(
+            super::load_or_create_key(&store, false),
+            Err(super::STORAGE_ERROR)
+        );
+    }
+
     use super::*;
     #[test]
     fn mappings_match_whole_phrases_without_case_sensitivity() {

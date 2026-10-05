@@ -88,7 +88,9 @@ build before adoption. See [sqlite-vec](https://github.com/asg017/sqlite-vec).
   the signed application bundle.
 - Run forward-only, transactional schema migrations after the key is available.
 - Fail closed on a wrong key, corrupt database, missing required extension, or
-  incomplete migration; never replace an unreadable database automatically.
+  incomplete migration; never replace an unreadable database automatically, and
+  never replace its key: a key that cannot be read, or is missing while the
+  library file exists, is an error, not a reason to create one.
 - Test deletion, expiry, and migration against FTS shadow tables so removed
   content cannot survive in derived storage.
 - Treat backup and device migration as future product decisions because the
